@@ -1,4 +1,5 @@
 Vectorization (and multi threading) support for the Buckingham pair potentials on Intel(R) Platforms.
+Vectorization (and multi threading) support for pppm on Intel(R) Platforms
 
 These files can be integrated into USER-INTEL package from LAMMPS.
 
