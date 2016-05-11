@@ -1,0 +1,21 @@
+
+units               metal
+atom_style          charge
+
+read_data 	        data.aC
+replicate 4 4 4
+
+pair_style 	        buck/coul/cut 10.0 
+pair_coeff        	2 2 1388.77 .3623188 175.0
+pair_coeff          1 2 18003   .2052124  133.5381
+pair_coeff 	        1 1 0 .1 0
+
+neighbor            0.3 bin
+neigh_modify        delay 0 every 1 check yes
+
+velocity  	        all create 300.0 1281937
+
+fix  		            1 all nve
+
+
+run  		            100
