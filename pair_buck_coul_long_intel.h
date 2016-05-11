@@ -31,14 +31,14 @@ namespace LAMMPS_NS {
 
 class PairBuckCoulLongIntel : public PairBuckCoulLong {
 
-public:
+ public:
   PairBuckCoulLongIntel(class LAMMPS *);
   virtual ~PairBuckCoulLongIntel();
   virtual void compute(int, int);
   void init_style();
   typedef struct { float x, y, z; int w; } sng4_t;
 
-private:
+ private:
   FixIntel *fix;
   int _cop;
 
@@ -59,8 +59,7 @@ private:
 
   template <class flt_t>
   class ForceConst {
-  
-  public:
+   public:
     typedef struct { flt_t cutsq, cut_ljsq, buck1, buck2; } c_force_t;
     typedef struct { flt_t a, c, offset, pad; } c_energy_t;
     typedef struct { flt_t r, dr, f, df; } table_t;
@@ -79,14 +78,12 @@ private:
     void set_ntypes(const int ntypes, const int ntable, Memory *memory,
 		    const int cop);
 
-  private:
+   private:
     int _ntypes, _ntable, _cop;
     Memory *_memory;
   };
   ForceConst<float> force_const_single;
   ForceConst<double> force_const_double;
-
-
 };
 
 }

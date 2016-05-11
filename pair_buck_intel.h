@@ -52,17 +52,7 @@ private:
   void eval(const int offload, const int vflag,
 	    IntelBuffers<flt_t,acc_t> * buffers,
 	    const ForceConst<flt_t> &fc, const int astart, const int aend);
-  /*
-  template <int EVFLAG, int EFLAG, int NEWTON_PAIR>
-  void eval(const int offload, const int vflag,
-	    IntelBuffers<double,double> * buffers,
-	    const ForceConst<double> &fc, const int astart, const int aend);
 
-  template <int EVFLAG, int EFLAG, int NEWTON_PAIR>
-  void eval(const int offload, const int vflag,
-	    IntelBuffers<float,float> * buffers,
-	    const ForceConst<float> &fc, const int astart, const int aend);
-  */
   template <class flt_t, class acc_t>
   void pack_force_const(ForceConst<flt_t> &fc,
                         IntelBuffers<flt_t, acc_t> *buffers);
@@ -91,8 +81,6 @@ private:
   
   ForceConst<float> force_const_single;
   ForceConst<double> force_const_double;
-  
-
 };
 
 }

@@ -35,18 +35,6 @@
 #include "force.h"
 #include "modify.h"
 
-#ifdef MIC_INTRIN
-  #ifdef _LMP_INTEL_OFFLOAD
-  #pragma offload_attribute(push,target(mic))
-  #endif
-
-  #include "mmic.h"
-
-  #ifdef _LMP_INTEL_OFFLOAD
-  #pragma offload_attribute(pop)
-  #endif
-#endif
-
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
@@ -58,9 +46,7 @@ PairBuckCoulLongIntel::PairBuckCoulLongIntel(LAMMPS *lmp) :
   PairBuckCoulLong(lmp)
 {
   suffix_flag |= Suffix::INTEL;
-
 }
-
 
 PairBuckCoulLongIntel::~PairBuckCoulLongIntel()
 {
@@ -84,8 +70,8 @@ void PairBuckCoulLongIntel::compute(int eflag, int vflag)
 
 template <class flt_t, class acc_t>
 void PairBuckCoulLongIntel::compute(int eflag, int vflag,
-				     IntelBuffers<flt_t,acc_t> *buffers,
-				     const ForceConst<flt_t> &fc)
+				    IntelBuffers<flt_t,acc_t> *buffers,
+				    const ForceConst<flt_t> &fc)
 {
   if (eflag || vflag) {
     ev_setup(eflag,vflag);
@@ -147,9 +133,9 @@ void PairBuckCoulLongIntel::compute(int eflag, int vflag,
 
 template <int EVFLAG, int EFLAG, int NEWTON_PAIR, class flt_t, class acc_t>
 void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
-				     IntelBuffers<flt_t,acc_t> *buffers,
-				     const ForceConst<flt_t> &fc,
-				     const int astart, const int aend)
+				 IntelBuffers<flt_t,acc_t> *buffers,
+				 const ForceConst<flt_t> &fc,
+				 const int astart, const int aend)
 {
   const int inum = aend - astart;
   if (inum == 0) return;
@@ -230,10 +216,8 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
     ITABLE_IN signal(f_start)
   #endif
   {
-    #ifdef __MIC__
-    #ifdef _LMP_INTEL_OFFLOAD
+    #if defined(__MIC__) && defined(_LMP_INTEL_OFFLOAD)
     *timer_compute = MIC_Wtime();
-    #endif
     #endif
 
     IP_PRE_repack_for_offload(NEWTON_PAIR, separate_flag, nlocal, nall, 
@@ -262,7 +246,6 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
 
       for (int i = iifrom; i < iito; ++i) {
         const int itype = x[i].w;
-
         const int ptr_off = itype * ntypes;
         const C_FORCE_T * _noalias const c_forcei = c_force + ptr_off;
         const C_ENERGY_T * _noalias const c_energyi = c_energy + ptr_off;
@@ -284,353 +267,10 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
 	  if (vflag==1) sv0 = sv1 = sv2 = sv3 = sv4 = sv5 = (acc_t)0;
 	}
 
-
-
-        //begin intrinsics code
-#if defined(MIC_INTRIN) && defined(__MIC__) && defined(__INTEL_COMPILER)
-
-        typedef typename intrin::vector_op<acc_t> ac; // vector functions for acc_t precision
-        typedef typename intrin::vector_op<flt_t> fl; // vector functions for flt_t precision
-
-        __declspec(align(64)) const int jjd[16]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
-        typename ac::fvec4 faccmic;  //force accumulator (zero by default)
-        typename fl::fvec4 xmici; //positions for xi
-        typename fl::fvec buck1mic, buck2mic, rhoinvmic,
-                          cutsqmic, cut_coulsqmic, cut_ljsqmic,
-                          amic, cmic, offsetmic;
-
-
-        typename ac::fvec sv0mic, sv1mic, sv2mic, sv3mic, sv4mic, sv5mic, sevdwlmic, secoulmic;
-        sv0mic = ac::setzero();
-        sv1mic = ac::setzero();
-        sv2mic = ac::setzero();
-        sv3mic = ac::setzero();
-        sv4mic = ac::setzero();
-        sv5mic = ac::setzero();
-        sevdwlmic = ac::setzero();
-        secoulmic = ac::setzero();
-
-
-        typename fl::fvec qmici = fl::set1(qtmp);
-        typename fl::fvec qqr_i = fl::mul(fl::set1(qqrd2e),qmici);
-        typename fl::fmask localmaski;
-        
-        if(NEWTON_PAIR || i < nlocal)
-          localmaski = fl::BASEMASK;
-        else
-          localmaski = 0;
-        
-        typename fl::ivec nlocalmic = fl::set1(nlocal);
-
-        
-        // Setting the value of the 1st atom type. Changing it later if necessary
-        cutsqmic = fl::set1(c_forcei[1].cutsq);
-        cut_ljsqmic = fl::set1(c_forcei[1].cut_ljsq);
-        buck1mic = fl::set1(c_forcei[1].buck1);
-        buck2mic = fl::set1(c_forcei[1].buck2);
-        rhoinvmic = fl::set1(rho_invi[1]);
-        amic = fl::set1(c_energyi[1].a);
-        cmic = fl::set1(c_energyi[1].c);
-        offsetmic = fl::set1(c_energyi[1].offset);
-
-        // Loading the position of the i atom.
-        xmici.x = fl::set1(xtmp);
-        xmici.y = fl::set1(ytmp);
-        xmici.z = fl::set1(ztmp);
-
-        //Vectorized LOOP trhough j atoms
-        for (int jj = 0; jj < jnum; jj += fl::VL){
-          //typename fl::fvec4 ftmpmic;  // temp force (zero by default)
-          __declspec(align(64)) int jidx[16];
-          typename fl::fmask mymask;
-          int elem = jnum-jj;
-          
-          //Checking the # of elements we have to load in the current iteraton
-          if(elem >= fl::VL)
-            mymask = fl::BASEMASK;
-          else
-            mymask = (0x1 << elem) - 1;
-
-          typename fl::ivec jjmic, sbmic, jmic, nmaskmic;
-
-          jjmic = fl::add( fl::load(jjd), fl::set1(jj));
-          jmic = fl::mask_gather(fl::set1(0), mymask, jjmic, jlist);
-          sbmic = fl::rshift( jmic, fl::set1(SBBITS));
-          sbmic = fl::bitwiseand( sbmic, fl::set1(3));
-          jmic = fl::bitwiseand( jmic, fl::set1(NEIGHMASK));
-
-
-          fl::mask_packstore(jidx, fl::BASEMASK, jmic);
-          
-          typename fl::fvec4 xmicj = fl::swizzleload(&x[0].x, jidx, mymask);
-          xmicj.x = fl::sub(xmici.x, xmicj.x);
-          xmicj.y = fl::sub(xmici.y, xmicj.y);
-          xmicj.z = fl::sub(xmici.z, xmicj.z);
-
-          typename fl::fvec rsqmic;
-          rsqmic = fl::rsq(xmicj); //x^2+y^2+z^2;
-
-          typename fl::ivec typemic;
-          if (ntypes > 2){ //load the parameters for this type of atom
-            typemic = fl::cast_int(xmicj.w);
-            rhoinvmic = fl::logather(typemic, rho_invi);
-
-            // other parameters are separated by 4 elements, thus we need offset:
-            typemic = fl::mul(typemic, fl::set1(4));
-            cutsqmic = fl::mask_logather(fl::setzero(), mymask, typemic, &c_forcei[0].cutsq);
-            cut_ljsqmic = fl::mask_logather(fl::setzero(), mymask, typemic, &c_forcei[0].cut_ljsq);
-            buck1mic = fl::logather(typemic, &c_forcei[0].buck1);
-            buck2mic = fl::logather(typemic, &c_forcei[0].buck2);
-
-            amic = fl::logather(typemic, &c_energyi[0].a);
-            cmic = fl::logather(typemic, &c_energyi[0].c);
-            offsetmic = fl::logather(typemic, &c_energyi[0].offset);
-          }
-
-
- 
-          typename fl::fmask incutsq = fl::cmplt(rsqmic, cutsqmic);
-          typename fl::fmask sbtrue = fl::cmpgt(sbmic, fl::set1(0));
-
-
-          if(incutsq){
-
-            typename fl::fvec4 ftmpmic;
-            typename fl::fmask localmaskj;
-
-            // Initializing force and energy
-            typename fl::fvec fcoulmic = fl::setzero();
-            typename fl::fvec ecoulmic = fl::setzero();
-            typename fl::fvec qmicj = fl::logather(jmic, q);
-            typename fl::fvec rmic, rinvmic, r2invmic;
-            rmic = fl::sqrt(rsqmic);
-            rinvmic = fl::recip(rmic);
-            r2invmic = fl::recip(rsqmic);
-            typename fl::fmask cutmask = incutsq;
-#ifdef INTEL_ALLOW_TABLE
-            typename fl::fvec tabinnersqmic = fl::set1(tabinnersq);
-            typename fl::fmask intab = fl::cmple(rsqmic, tabinnersqmic);
-            if(!ncoultablebits || intab > 0){
-              cutmask = incutsq & intab;
-              
-#endif
-              typename fl::fvec A1mic, A2mic, A3mic, A4mic, A5mic, EWALD_Fmic,
-                INV_EWALD_Pmic, grijmic, expm2mic, tmic, erfcmic, prefactormic;
-              A1mic = fl::set1((flt_t)0.254829592);
-              A2mic = fl::set1((flt_t)-0.284496736);
-              A3mic = fl::set1((flt_t)1.421413741);
-              A4mic = fl::set1((flt_t)-1.453152027);
-              A5mic = fl::set1((flt_t)1.061405429);
-              EWALD_Fmic = fl::set1((flt_t)1.12837917);
-              INV_EWALD_Pmic = fl::set1((flt_t)(1.0/0.3275911));
-
-              grijmic = fl::mul(rmic, fl::set1(g_ewald));
-              expm2mic = fl::exp(fl::fnmadd(grijmic, grijmic,fl::setzero()));
-              tmic = fl::div(INV_EWALD_Pmic, fl::add(INV_EWALD_Pmic, grijmic));
-              erfcmic = fl::mul(tmic,
-                                fl::mul(expm2mic,
-                                        fl::fmadd(tmic, fl::fmadd(tmic, fl::fmadd(tmic, fl::fmadd(A5mic, tmic, A4mic), A3mic),A2mic),A1mic)));
-              prefactormic = fl::mask_mul(fl::setzero(), cutmask, qqr_i, fl::mul(qmicj, rinvmic));
-              fcoulmic = fl::fmadd(EWALD_Fmic, fl::mul(expm2mic, grijmic), erfcmic);
-              fcoulmic = fl::mul(prefactormic,fcoulmic);
-              if (EFLAG)
-                ecoulmic = fl::mul(prefactormic, erfcmic);
-              if(sbtrue){
-                typename fl::fvec scmic = fl::mask_logather(fl::setzero(), sbtrue,  sbmic, special_coul);
-
-                typename fl::fvec adjust = fl::mask_mul(fl::setzero(), sbtrue, prefactormic,
-                                                        fl::sub(fl::set1((flt_t)1.0), scmic));
-                fcoulmic = fl::sub(fcoulmic, adjust);
-                if (EFLAG)
-                  ecoulmic = fl::sub(ecoulmic, adjust);
-              }
-#ifdef INTEL_ALLOW_TABLE
-            }
-            cutmask = incutsq & ~(intab);
-            if(cutmask > 0){
-              
-              typename fl::ivec rsq_lookupmic = fl::cast_int2(rsqmic); 
-              typename fl::ivec itablemic = fl::bitwiseand(rsq_lookupmic,fl::set1(ncoulmask));
-              itablemic = fl::rshift(itablemic, fl::set1(ncoulshiftbits));
-              
-              typename fl::fvec etablemic, detablemic, ctablemic, dctablemic;
-              if (EFLAG){
-                etablemic = fl::logather(itablemic, etable);
-                detablemic = fl::logather(itablemic, detable);
-              }
-              
-              if (sbtrue){
-                ctablemic = fl::logather(itablemic, ctable);
-                dctablemic = fl::logather(itablemic, dctable);
-              }
-              itablemic = fl::mul(itablemic, fl::set1(4)); // the following are separated by 4 elements
-
-              typename fl::fvec tabler, tabledr, tablef, tabledf;
-              tabler = fl::logather(itablemic, &table[0].r);
-              tabledr = fl::logather(itablemic, &table[0].dr);
-              tablef = fl::logather(itablemic, &table[0].f);
-              tabledf = fl::logather(itablemic, &table[0].df);
-              
-              typename fl::fvec fractionmic = fl::mul(tabledr, fl::sub(rsqmic, tabler));
-              typename fl::fvec tabletmic = fl::fmadd(fractionmic, tabledf, tablef);
-              fcoulmic = fl::mask_mul(fcoulmic, cutmask, qmici, fl::mul(qmicj, tabletmic));
-              if (EFLAG)
-                ecoulmic = fl::mask_mul(ecoulmic, cutmask, qmici, 
-                                        fl::mul(qmicj, fl::fmadd(fractionmic, detablemic, etablemic)));
-
-              if (sbtrue){
-                typename fl::fvec table2mic = fl::fmadd(fractionmic, dctablemic, ctablemic);
-                typename fl::fvec scmic = fl::mask_logather(fl::setzero(), sbtrue,  sbmic, special_coul);
-                typename fl::fvec prefactormic = fl::mask_mul(fl::setzero(), sbtrue & cutmask, qmici, 
-                                                              fl::mul(qmicj, table2mic));
-
-                typename fl::fvec adjust = fl::mul(prefactormic, fl::sub(fl::set1((flt_t)1.0), scmic));
-                fcoulmic = fl::sub(fcoulmic, adjust);
-                if (EFLAG)
-                  ecoulmic = fl::sub(ecoulmic, adjust);
-              }
-            }
-
-#endif
-          
-           
-          //Buck force (lj cut)
-            typename fl::fmask incut_ljsq = fl::cmplt(rsqmic, cut_ljsqmic);
-            typename fl::fvec fbuckmic = fl::setzero();
-            typename fl::fvec evdwlmic = fl::setzero();
-            if(incut_ljsq){
-              typename fl::fvec r6invmic = fl::mul(r2invmic, fl::mul(r2invmic, r2invmic));
-              typename fl::fvec rexpmic = fl::exp(fl::fnmadd(rmic, rhoinvmic, fl::setzero()));
-              fbuckmic = fl::mul(rmic, fl::mul(rexpmic,buck1mic));
-              fbuckmic = fl::fnmadd(r6invmic, buck2mic, fbuckmic);
-              fbuckmic = fl::mask_mov(fl::setzero(), incut_ljsq, fbuckmic);
-              if(EFLAG){
-                evdwlmic = fl::mul(rexpmic, amic);
-                evdwlmic = fl::fnmadd(r6invmic, cmic, evdwlmic);
-                evdwlmic = fl::mask_sub(fl::setzero(), incut_ljsq, evdwlmic, offsetmic);
-              }
-
-              if(sbtrue){
-                typename fl::fvec factor_buckmic = fl::mask_logather(fl::set1((flt_t)1.0),
-                                                                     sbtrue,  sbmic, special_lj);
-                fbuckmic = fl::mul(factor_buckmic, fbuckmic);
-                if(EFLAG)
-                  evdwlmic = fl::mul(factor_buckmic, fbuckmic);
-              }
-            }
-            
-            typename fl::fvec fpairmic = fl::mul(r2invmic, fl::add(fcoulmic, fbuckmic));
-            ftmpmic.x = fl::mul(fpairmic, xmicj.x);
-            ftmpmic.y = fl::mul(fpairmic, xmicj.y);
-            ftmpmic.z = fl::mul(fpairmic, xmicj.z);
-            
-
-            // Add to te accu
-            faccmic.x = ac::mask_accu(faccmic.x, mymask, ftmpmic.x);
-            faccmic.y = ac::mask_accu(faccmic.y, mymask, ftmpmic.y);
-            faccmic.z = ac::mask_accu(faccmic.z, mymask, ftmpmic.z);
-           
-
-            if (NEWTON_PAIR){
-              localmaskj = mymask;
-            }
-            else{
-              localmaskj = fl::cmplt(jmic, nlocalmic);
-              localmaskj &= mymask;
-            }
-            
-
-            if (EVFLAG){
-              typename fl::fvec ev_premic;
-              if (localmaski)
-                ev_premic = fl::set1((flt_t)0.5);
-              else
-                ev_premic = fl::setzero();
-              
-              ev_premic = fl::mask_add(ev_premic, localmaskj, ev_premic, fl::set1((flt_t)0.5));
-
-
-              if (EFLAG){
-
-                sevdwlmic = ac::mask_accu(sevdwlmic, mymask, fl::mul(ev_premic, evdwlmic));
-                secoulmic = ac::mask_accu(secoulmic, mymask, fl::mul(ev_premic, ecoulmic));
-
-
-                if (eatom){
-                  ftmpmic.w = fl::mask_mul(ftmpmic.w, localmaski, 
-                                           fl::set1((flt_t)0.5), fl::add(evdwlmic, ecoulmic));
-                  faccmic.w = ac::mask_accu(faccmic.w, mymask, ftmpmic.w);
-                }
-              }
-              
-              if(vflag == 1){
-                typename fl::fvec evpmic = fl::mul(ev_premic, fpairmic);
-                typename fl::fvec evprexp = fl::mul(xmicj.x, evpmic);
-                typename fl::fvec evpreyp = fl::mul(xmicj.y, evpmic);
-                typename fl::fvec evprezp = fl::mul(xmicj.z, evpmic);
-
-                sv0mic = ac::mask_accu(sv0mic, mymask, fl::mul(evprexp, xmicj.x));
-                sv1mic = ac::mask_accu(sv1mic, mymask, fl::mul(evpreyp, xmicj.y));
-                sv2mic = ac::mask_accu(sv2mic, mymask, fl::mul(evprezp, xmicj.z));
-                sv3mic = ac::mask_accu(sv3mic, mymask, fl::mul(evprexp, xmicj.y));
-                sv4mic = ac::mask_accu(sv4mic, mymask, fl::mul(evprexp, xmicj.z));
-                sv5mic = ac::mask_accu(sv5mic, mymask, fl::mul(evpreyp, xmicj.z));
-
-
-              }
-            }
-
-                                 
-
-            // correct to add energy to f[j].w
-            if(EFLAG && eatom)
-              ftmpmic.w = fl::mul(fl::set1((flt_t)-0.5), fl::add(evdwlmic, ecoulmic));
-            else
-              ftmpmic.w = fl::setzero();
-            // Update j                        
-            if (localmaskj){
-              ftmpmic.x = fl::mask_mov(fl::setzero(), localmaskj, ftmpmic.x);
-              ftmpmic.y = fl::mask_mov(fl::setzero(), localmaskj, ftmpmic.y);
-              ftmpmic.z = fl::mask_mov(fl::setzero(), localmaskj, ftmpmic.z);
-              
-              ac::swizzlesubstore(&f[0].x, ftmpmic, jidx, mymask);            
-
-            }
-
-          } // in cutsq
-
-
-        } // for jj
-
-        if (EVFLAG){
-          if(vflag == 1){
-            sv0 += ac::mask_reduce_add(ac::BASEMASK, sv0mic);
-            sv1 += ac::mask_reduce_add(ac::BASEMASK, sv1mic);
-            sv2 += ac::mask_reduce_add(ac::BASEMASK, sv2mic);
-            sv3 += ac::mask_reduce_add(ac::BASEMASK, sv3mic);
-            sv4 += ac::mask_reduce_add(ac::BASEMASK, sv4mic);
-            sv5 += ac::mask_reduce_add(ac::BASEMASK, sv5mic);
-          }
-        }
-
-        if (EFLAG){
-          sevdwl += ac::mask_reduce_add(ac::BASEMASK, sevdwlmic);
-          secoul += ac::mask_reduce_add(ac::BASEMASK, secoulmic);
-          fwtmp = ac::mask_reduce_add(ac::BASEMASK, faccmic.w);
-        }
-
-
-        fxtmp = ac::mask_reduce_add(ac::BASEMASK, faccmic.x);
-        fytmp = ac::mask_reduce_add(ac::BASEMASK, faccmic.y);
-        fztmp = ac::mask_reduce_add(ac::BASEMASK, faccmic.z);
-
-        //end intrinsics code
-#else
-
-        #if defined(__INTEL_COMPILER) && defined(SIMD_PRAGMA)
-        	#pragma vector aligned
-	        #pragma simd reduction(+:fxtmp, fytmp, fztmp, fwtmp, sevdwl, secoul, \
-	                       sv0, sv1, sv2, sv3, sv4, sv5) 
+        #if defined(LMP_SIMD_COMPILER)
+        #pragma vector aligned
+	#pragma simd reduction(+:fxtmp, fytmp, fztmp, fwtmp, sevdwl, \
+	                       sv0, sv1, sv2, sv3, sv4, sv5)
         #endif
         for (int jj = 0; jj < jnum; jj++) {
           flt_t forcecoul, forcebuck, evdwl, ecoul;
@@ -644,16 +284,15 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
           const flt_t delz = ztmp - x[j].z;
           const int jtype = x[j].w;
           const flt_t rsq = delx * delx + dely * dely + delz * delz;
-          const flt_t r = sqrt(rsq);
-
           const flt_t r2inv = (flt_t)1.0 / rsq;
+          const flt_t r = (flt_t)1.0 / sqrt(r2inv);
 
-#ifdef __MIC__
+          #ifdef INTEL_VMASK
           if (rsq < c_forcei[jtype].cutsq) {
-#endif
-#ifdef INTEL_ALLOW_TABLE
+          #endif
+            #ifdef INTEL_ALLOW_TABLE
             if (!ncoultablebits || rsq <= tabinnersq) {
-#endif
+            #endif
               const flt_t A1 =  0.254829592;
               const flt_t A2 = -0.284496736;
               const flt_t A3 =  1.421413741;
@@ -662,7 +301,6 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
               const flt_t EWALD_F = 1.12837917;
               const flt_t INV_EWALD_P = 1.0 / 0.3275911;
 
-              //              const flt_t r = sqrt(rsq);
               const flt_t grij = g_ewald * r;
               const flt_t expm2 = exp(-grij * grij);
               const flt_t t = INV_EWALD_P / (INV_EWALD_P + grij);
@@ -670,13 +308,13 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
               const flt_t prefactor = qqrd2e * qtmp * q[j] / r;
               forcecoul = prefactor * (erfc + EWALD_F * grij * expm2);
               if (EFLAG) ecoul = prefactor * erfc;
-              if (sbindex) {
-                const flt_t adjust = ((flt_t)1.0 - special_coul[sbindex])*
-                  prefactor;
-                forcecoul -= adjust;
-                if (EFLAG) ecoul -= adjust;
-              }
-#ifdef INTEL_ALLOW_TABLE
+
+	      const flt_t adjust = ((flt_t)1.0 - special_coul[sbindex])*
+		prefactor;
+	      forcecoul -= adjust;
+	      if (EFLAG) ecoul -= adjust;
+
+            #ifdef INTEL_ALLOW_TABLE
             } else {
               float rsq_lookup = rsq;
               const int itable = (__intel_castf32_u32(rsq_lookup) &
@@ -699,14 +337,14 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
                 if (EFLAG) ecoul -= adjust;
               }
             }
-#endif
-#ifdef __MIC__
+            #endif
+            #ifdef INTEL_VMASK
           }
 	  #endif
 
-	  #ifdef __MIC__
+	  #ifdef INTEL_VMASK
           if (rsq < c_forcei[jtype].cut_ljsq) {
-#endif
+          #endif
             flt_t r6inv = r2inv * r2inv * r2inv;
             flt_t rexp = exp(-r * rho_invi[jtype]);
             forcebuck = r * rexp * c_forcei[jtype].buck1 -
@@ -720,18 +358,18 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
               forcebuck *= factor_lj;
               if (EFLAG) evdwl *= factor_lj;
             }
-#ifdef __MIC__
+          #ifdef INTEL_VMASK
           }
-#else
+          #else
           if (rsq > c_forcei[jtype].cutsq)
             { forcecoul = (flt_t)0.0; ecoul = (flt_t)0.0; }
           if (rsq > c_forcei[jtype].cut_ljsq)
             { forcebuck = (flt_t)0.0; evdwl = (flt_t)0.0; }
-#endif
+          #endif
 
-#ifdef __MIC__
+          #ifdef INTEL_VMASK
           if (rsq < c_forcei[jtype].cutsq) {
-#endif
+          #endif
             const flt_t fpair = (forcecoul + forcebuck) * r2inv;
             fxtmp += delx * fpair;
             fytmp += dely * fpair;
@@ -761,23 +399,28 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
               }
               IP_PRE_ev_tally_nbor(vflag, ev_pre, fpair, delx, dely, delz);
             }
-#ifdef __MIC__
+          #ifdef INTEL_VMASK
           }
-#endif
+          #endif
         } // for jj
 
-#endif
         f[i].x += fxtmp;
         f[i].y += fytmp;
         f[i].z += fztmp;
 	IP_PRE_ev_tally_atomq(EVFLAG, EFLAG, vflag, f, fwtmp);
       } // for ii
-      #if defined(_OPENMP)
-      #pragma omp barrier
+
+      #ifndef _LMP_INTEL_OFFLOAD
+      if (vflag == 2)
       #endif
-      IP_PRE_fdotr_acc_force(NEWTON_PAIR, EVFLAG,  EFLAG, vflag, eatom, nall,
-			     nlocal, minlocal, nthreads, f_start, f_stride, 
-			     x);
+      {
+        #if defined(_OPENMP)
+        #pragma omp barrier
+        #endif
+        IP_PRE_fdotr_acc_force(NEWTON_PAIR, EVFLAG,  EFLAG, vflag, eatom, nall,
+			       nlocal, minlocal, nthreads, f_start, f_stride, 
+			       x, offload);
+      }
     } // end of omp parallel region
     if (EVFLAG) {
       if (EFLAG) {
@@ -793,10 +436,8 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
         ev_global[7] = ov5;
       }
     }
-    #ifdef __MIC__
-    #ifdef _LMP_INTEL_OFFLOAD
+    #if defined(__MIC__) && defined(_LMP_INTEL_OFFLOAD)
     *timer_compute = MIC_Wtime() - *timer_compute;
-    #endif
     #endif
   } // end of offload region
 
@@ -806,7 +447,7 @@ void PairBuckCoulLongIntel::eval(const int offload, const int vflag,
     fix->stop_watch(TIME_HOST_PAIR);
 
   if (EVFLAG)
-    fix->add_result_array(f_start, ev_global, offload, eatom);
+    fix->add_result_array(f_start, ev_global, offload, eatom, 0, vflag);
   else
     fix->add_result_array(f_start, 0, offload);
 }
