@@ -20,6 +20,7 @@
 #include <math.h>
 #include "pppm_intel.h"
 #include "atom.h"
+#include "fft3d_wrap.h"
 #include "error.h"
 #include "gridcomm.h"
 #include "math_const.h"
@@ -66,7 +67,7 @@ PPPMIntel::~PPPMIntel()
 void PPPMIntel::init()
 {
   PPPM::init();
-  
+
   int ifix = modify->find_fix("package_intel");
   if (ifix < 0)
     error->all(FLERR,
@@ -108,6 +109,12 @@ void PPPMIntel::compute(int eflag, int vflag)
     return;
   }
   #endif
+
+  //double p3mtime1, p3mtime2, p3mtime3;
+  //struct timespec tv;
+  //if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
+  //else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
 
   int i,j;
 
@@ -177,7 +184,28 @@ void PPPMIntel::compute(int eflag, int vflag)
   // return gradients (electric fields) in 3d brick decomposition
   // also performs per-atom calculations via poisson_peratom()
 
-  poisson();
+  //if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+  //else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+
+
+  if (differentiation_flag == 1) {
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED)
+      poisson_ad<float,double>(fix->get_mixed_buffers());
+    else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE)
+      poisson_ad<double,double>(fix->get_double_buffers());
+    else
+      poisson_ad<float,float>(fix->get_single_buffers());
+  } else {
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED)
+      poisson_ik<float,double>(fix->get_mixed_buffers());
+    else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE)
+      poisson_ik<double,double>(fix->get_double_buffers());
+    else
+      poisson_ik<float,float>(fix->get_single_buffers());
+  }
+
+
 
   // all procs communicate E-field values
   // to fill ghost cells surrounding their 3d bricks
@@ -211,6 +239,7 @@ void PPPMIntel::compute(int eflag, int vflag)
     else
       fieldforce_ik<float,float>(fix->get_single_buffers());
   }
+
 
   // extra per-atom energy/virial communication
 
@@ -272,6 +301,12 @@ void PPPMIntel::compute(int eflag, int vflag)
   // convert atoms back from lamda to box coords
 
   if (triclinic) domain->lamda2x(atom->nlocal);
+
+  //if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
+  //else p3mtime3 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  //printf("compute time part 1: %g      part 2: %g\n", p3mtime2-p3mtime1, p3mtime3-p3mtime2);
+
+
 }
 
 /* ----------------------------------------------------------------------
@@ -284,6 +319,10 @@ template<class flt_t, class acc_t>
 void PPPMIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 {
 
+double p3mtime1, p3mtime2;
+struct timespec tv;
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
+else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 
   ATOM_T * _noalias const x = buffers->get_x(0);
   int nlocal = atom->nlocal;
@@ -318,7 +357,7 @@ void PPPMIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
     // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
     // current particle coord can be outside global and local box
     // add/subtract OFFSET to avoid int(-0.75) = 0 when want it to be -1
-    
+
     int nx = static_cast<int> ((x[i].x-lo0)*xi+fshift) - OFFSET;
     int ny = static_cast<int> ((x[i].y-lo1)*yi+fshift) - OFFSET;
     int nz = static_cast<int> ((x[i].z-lo2)*zi+fshift) - OFFSET;
@@ -335,6 +374,11 @@ void PPPMIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
   }
   }
   if (flag) error->one(FLERR,"Out of range atoms - cannot compute PPPM");
+
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+printf("particle map time %g\n", p3mtime2-p3mtime1);
+
 }
 
 
@@ -348,6 +392,12 @@ void PPPMIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 template<class flt_t, class acc_t>
 void PPPMIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 {
+
+double p3mtime1, p3mtime2;
+struct timespec tv;
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
+else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
 
   FFT_SCALAR * _noalias const densityThr =        \
        &(density_brick[nzlo_out][nylo_out][nxlo_out]);
@@ -432,6 +482,11 @@ void PPPMIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     }
   }
   }
+
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+printf("make_rho time %g\n", p3mtime2-p3mtime1);
+
 }
 
 /* ----------------------------------------------------------------------
@@ -441,6 +496,13 @@ void PPPMIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 template<class flt_t, class acc_t>
 void PPPMIntel::fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers)
 {
+
+double p3mtime1, p3mtime2;
+struct timespec tv;
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
+else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+
   // loop over my charges, interpolate electric field from nearby grid points
   // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
   // (dx,dy,dz) = distance to "lower left" grid pt
@@ -526,10 +588,22 @@ void PPPMIntel::fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers)
 
   }
 
+
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+printf("fieldforce_ik time %g\n", p3mtime2-p3mtime1);
+
 }
 
 void PPPMIntel::brick2fft()
 {
+
+double p3mtime1, p3mtime2;
+struct timespec tv;
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
+else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+
   int nz_in = nzhi_in - nzlo_in + 1;
   int ny_in = nyhi_in - nylo_in + 1;
   int nx_in = nxhi_in - nxlo_in + 1;
@@ -544,12 +618,12 @@ void PPPMIntel::brick2fft()
           density_brick[nzlo_in + iz][nylo_in + iy][nxlo_in + ix];
 
   remap->perform(density_fft, density_fft, work1);
-}
 
 
-template<class flt_t, class acc_t>
-void PPPMIntel::fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers)
-{
+if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+printf("brick2fft time %g\n", p3mtime2-p3mtime1);
+
 }
 
 /* ----------------------------------------------------------------------
@@ -559,6 +633,7 @@ void PPPMIntel::fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers)
 template<class flt_t, class acc_t>
 void PPPMIntel::fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers)
 {
+
   // loop over my charges, interpolate electric field from nearby grid points
   // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
   // (dx,dy,dz) = distance to "lower left" grid pt
@@ -681,4 +756,252 @@ void PPPMIntel::fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers)
 
     if (slabflag != 2) f[i].z += qfactor * ekz - fqqrd2es * sf;
   }
+}
+
+/* ----------------------------------------------------------------------
+   FFT-based Poisson solver for ik
+------------------------------------------------------------------------- */
+
+template<class flt_t, class acc_t>
+void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
+{
+
+   double p3mtime1, p3mtime2, p3mtime3;
+  struct timespec tv;
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
+  else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  p3mtime3 = 0.;
+
+
+  int i,j,k,n;
+  double eng;
+
+  // transform charge density (r -> k)
+
+  n = 0;
+  for (i = 0; i < nfft; i++) {
+    work1[n++] = density_fft[i];
+    work1[n++] = ZEROF;
+  }
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+  else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+  fft1->compute(work1,work1,1);
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
+  else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
+
+
+  // global energy and virial contribution
+
+  double scaleinv = 1.0/(nx_pppm*ny_pppm*nz_pppm);
+  double s2 = scaleinv*scaleinv;
+
+  if (eflag_global || vflag_global) {
+    if (vflag_global) {
+      n = 0;
+      for (i = 0; i < nfft; i++) {
+        eng = s2 * greensfn[i] * (work1[n]*work1[n] + work1[n+1]*work1[n+1]);
+        for (j = 0; j < 6; j++) virial[j] += eng*vg[i][j];
+        if (eflag_global) energy += eng;
+        n += 2;
+      }
+    } else {
+      n = 0;
+      for (i = 0; i < nfft; i++) {
+        energy +=
+          s2 * greensfn[i] * (work1[n]*work1[n] + work1[n+1]*work1[n+1]);
+        n += 2;
+      }
+    }
+  }
+
+  // scale by 1/total-grid-pts to get rho(k)
+  // multiply by Green's function to get V(k)
+
+  n = 0;
+  for (i = 0; i < nfft; i++) {
+    work1[n++] *= scaleinv * greensfn[i];
+    work1[n++] *= scaleinv * greensfn[i];
+  }
+
+  // extra FFTs for per-atom energy/virial
+
+  if (evflag_atom) poisson_peratom();
+
+  // triclinic system
+
+  if (triclinic) {
+    poisson_ik_triclinic();
+    return;
+  }
+
+  // compute gradients of V(r) in each of 3 dims by transformimg -ik*V(k)
+  // FFT leaves data in 3d brick decomposition
+  // copy it into inner portion of vdx,vdy,vdz arrays
+
+  // x direction gradient
+  n = 0;
+  for (k = nzlo_fft; k <= nzhi_fft; k++)
+    for (j = nylo_fft; j <= nyhi_fft; j++)
+      for (i = nxlo_fft; i <= nxhi_fft; i++) {
+        work2[n] = fkx[i]*work1[n+1];
+        work2[n+1] = -fkx[i]*work1[n];
+        n += 2;
+      }
+
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+  else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+  fft2->compute(work2,work2,-1);
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
+  else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
+
+  n = 0;
+  for (k = nzlo_in; k <= nzhi_in; k++)
+    for (j = nylo_in; j <= nyhi_in; j++)
+      for (i = nxlo_in; i <= nxhi_in; i++) {
+        vdx_brick[k][j][i] = work2[n];
+        n += 2;
+      }
+
+  // y direction gradient
+
+  n = 0;
+  for (k = nzlo_fft; k <= nzhi_fft; k++)
+    for (j = nylo_fft; j <= nyhi_fft; j++)
+      for (i = nxlo_fft; i <= nxhi_fft; i++) {
+        work2[n] = fky[j]*work1[n+1];
+        work2[n+1] = -fky[j]*work1[n];
+        n += 2;
+      }
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+  else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+  fft2->compute(work2,work2,-1);
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
+  else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
+
+
+  n = 0;
+  for (k = nzlo_in; k <= nzhi_in; k++)
+    for (j = nylo_in; j <= nyhi_in; j++)
+      for (i = nxlo_in; i <= nxhi_in; i++) {
+        vdy_brick[k][j][i] = work2[n];
+        n += 2;
+      }
+
+  // z direction gradient
+
+  n = 0;
+  for (k = nzlo_fft; k <= nzhi_fft; k++)
+    for (j = nylo_fft; j <= nyhi_fft; j++)
+      for (i = nxlo_fft; i <= nxhi_fft; i++) {
+        work2[n] = fkz[k]*work1[n+1];
+        work2[n+1] = -fkz[k]*work1[n];
+        n += 2;
+      }
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+  else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+  fft2->compute(work2,work2,-1);
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
+  else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
+
+  n = 0;
+  for (k = nzlo_in; k <= nzhi_in; k++)
+    for (j = nylo_in; j <= nyhi_in; j++)
+      for (i = nxlo_in; i <= nxhi_in; i++) {
+        vdz_brick[k][j][i] = work2[n];
+        n += 2;
+      }
+
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
+  else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  printf("poisson total: %g      in ffts: %g\n", p3mtime2-p3mtime1, p3mtime3);
+
+}
+
+
+
+/* ----------------------------------------------------------------------
+   FFT-based Poisson solver for ad
+------------------------------------------------------------------------- */
+
+template<class flt_t, class acc_t>
+void PPPMIntel::poisson_ad(IntelBuffers<flt_t,acc_t> *buffers)
+{
+  int i,j,k,n;
+  double eng;
+
+  // transform charge density (r -> k)
+
+  n = 0;
+  for (i = 0; i < nfft; i++) {
+    work1[n++] = density_fft[i];
+    work1[n++] = ZEROF;
+  }
+
+  fft1->compute(work1,work1,1);
+
+  // global energy and virial contribution
+
+  double scaleinv = 1.0/(nx_pppm*ny_pppm*nz_pppm);
+  double s2 = scaleinv*scaleinv;
+
+  if (eflag_global || vflag_global) {
+    if (vflag_global) {
+      n = 0;
+      for (i = 0; i < nfft; i++) {
+        eng = s2 * greensfn[i] * (work1[n]*work1[n] + work1[n+1]*work1[n+1]);
+        for (j = 0; j < 6; j++) virial[j] += eng*vg[i][j];
+        if (eflag_global) energy += eng;
+        n += 2;
+      }
+    } else {
+      n = 0;
+      for (i = 0; i < nfft; i++) {
+        energy +=
+          s2 * greensfn[i] * (work1[n]*work1[n] + work1[n+1]*work1[n+1]);
+        n += 2;
+      }
+    }
+  }
+
+  // scale by 1/total-grid-pts to get rho(k)
+  // multiply by Green's function to get V(k)
+
+  n = 0;
+  for (i = 0; i < nfft; i++) {
+    work1[n++] *= scaleinv * greensfn[i];
+    work1[n++] *= scaleinv * greensfn[i];
+  }
+
+  // extra FFTs for per-atom energy/virial
+
+  if (vflag_atom) poisson_peratom();
+
+  n = 0;
+  for (i = 0; i < nfft; i++) {
+    work2[n] = work1[n];
+    work2[n+1] = work1[n+1];
+    n += 2;
+  }
+
+  fft2->compute(work2,work2,-1);
+
+  n = 0;
+  for (k = nzlo_in; k <= nzhi_in; k++)
+    for (j = nylo_in; j <= nyhi_in; j++)
+      for (i = nxlo_in; i <= nxhi_in; i++) {
+        u_brick[k][j][i] = work2[n];
+        n += 2;
+      }
 }
