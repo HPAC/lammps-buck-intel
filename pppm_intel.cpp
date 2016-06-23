@@ -110,10 +110,15 @@ void PPPMIntel::compute(int eflag, int vflag)
   }
   #endif
 
-  //double p3mtime1, p3mtime2, p3mtime3;
-  //struct timespec tv;
-  //if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
-  //else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  double p3mtime, p3mtime_total;;
+  struct timespec tv;
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+
+  static double p3mtime_wholetimestep = p3mtime;
+  printf("Timestep duration: %g\n\n", p3mtime - p3mtime_wholetimestep);
+  p3mtime_wholetimestep = p3mtime;
+  p3mtime_total = p3mtime;
 
 
   int i,j;
@@ -302,9 +307,9 @@ void PPPMIntel::compute(int eflag, int vflag)
 
   if (triclinic) domain->lamda2x(atom->nlocal);
 
-  //if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
-  //else p3mtime3 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  //printf("compute time part 1: %g      part 2: %g\n", p3mtime2-p3mtime1, p3mtime3-p3mtime2);
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  printf("total p3mtime: %g\n", p3mtime - p3mtime_total);
 
 
 }
@@ -404,6 +409,13 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   // clear 3d density array     
   memset(densityThr, 0, ngrid*sizeof(FFT_SCALAR));
 
+
+  //icc 16.0 does not support OpenMP 4.5 and so doesn't support
+  //array reduction.  This sets up private arrays in order to
+  //do the reduction manually.
+  FFT_SCALAR localDensity[comm->nthreads * ngrid];
+  memset(localDensity, 0.,comm->nthreads*ngrid*sizeof(FFT_SCALAR));
+
   // loop over my charges, add their contribution to nearby grid points
   // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
   // (dx,dy,dz) = distance to "lower left" grid pt
@@ -427,16 +439,23 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   const flt_t fshiftone = shiftone;
   const flt_t fdelvolinv = delvolinv;
 
-  //1st attempt Parallelize over the grid
+
+
+  //Parallelize over the atoms
   #if defined(_OPENMP)
   #pragma omp parallel default(none) \
-    shared(nthr, nlocal)
+    shared(nthr, nlocal, localDensity)
   #endif
   {
     int jfrom, jto, tid;
-    IP_PRE_omp_range_id(jfrom, jto, tid, ngrid, nthr);
+    IP_PRE_omp_range_id(jfrom, jto, tid, nlocal, nthr);
 
-  for (int i = 0; i < nlocal; i++) {
+
+    #if defined(LMP_SIMD_COMPILER)
+    //#pragma vector aligned nontemporal
+      #pragma simd
+      #endif   
+  for (int i = jfrom; i < jto; i++) {
 
     int nx = part2grid[i][0];
     int ny = part2grid[i][1];
@@ -445,8 +464,6 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
     FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
     FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo2)*zi;
 
-    if( (nz+nlower-nzlo_out)*niy*nix >= jto || (nz-nzlo_out + nupper + 1)*niy*nix <= jfrom )
-      continue;
 
     flt_t rho[3][INTEL_P3M_MAXORDER];
 
@@ -465,7 +482,7 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
     }
 
     FFT_SCALAR z0 = fdelvolinv * q[i];
-    
+
     for (int n = nlower; n <= nupper; n++) {
       int mz = (n + nz - nzlo_out)*nix*niy;
       FFT_SCALAR y0 = z0*rho[2][n-nlower];
@@ -474,19 +491,39 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
         FFT_SCALAR x0 = y0*rho[1][m-nlower];
         for (int l = nlower; l <= nupper; l++) {
           int mzyx = mzy + l + nx - nxlo_out;
-          if (mzyx >= jto) break;
-          if (mzyx < jfrom) continue;
-          densityThr[mzyx] += x0*rho[0][l-nlower];
+          //localDensity[mzyx*nthr + tid] += x0*rho[0][l-nlower];
+          localDensity[mzyx + ngrid*tid] += x0*rho[0][l-nlower];
         }
       }
     }
   }
   }
 
+  //do the reduction
+  #if defined(_OPENMP)
+  #pragma omp parallel default(none) \
+    shared(nthr, nlocal, localDensity)
+  #endif
+  {
+    int jfrom, jto, tid;
+    IP_PRE_omp_range_id(jfrom, jto, tid, ngrid, nthr);
+
+    #if defined(LMP_SIMD_COMPILER)
+    //#pragma vector aligned nontemporal
+      #pragma simd
+      #endif
+  for (int i = jfrom; i < jto; i++) {
+    for(int j = 0; j < nthr; j++) {
+      //densityThr[i] += localDensity[i*nthr + j];
+      densityThr[i] += localDensity[i + j*ngrid];
+    }
+  }
+  }
+
+
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
 else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 printf("make_rho time %g\n", p3mtime2-p3mtime1);
-
 }
 
 /* ----------------------------------------------------------------------
@@ -922,6 +959,7 @@ void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
         vdz_brick[k][j][i] = work2[n];
         n += 2;
       }
+
 
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
   else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
