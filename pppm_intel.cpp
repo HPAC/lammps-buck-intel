@@ -110,6 +110,7 @@ void PPPMIntel::compute(int eflag, int vflag)
   }
   #endif
 
+#ifdef HPAC_TIMING
   double p3mtime, p3mtime_total;;
   struct timespec tv;
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
@@ -119,7 +120,7 @@ void PPPMIntel::compute(int eflag, int vflag)
   printf("Timestep duration: %g\n\n", p3mtime - p3mtime_wholetimestep);
   p3mtime_wholetimestep = p3mtime;
   p3mtime_total = p3mtime;
-
+#endif
 
   int i,j;
 
@@ -307,10 +308,11 @@ void PPPMIntel::compute(int eflag, int vflag)
 
   if (triclinic) domain->lamda2x(atom->nlocal);
 
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   printf("total p3mtime: %g\n", p3mtime - p3mtime_total);
-
+#endif
 
 }
 
@@ -324,10 +326,12 @@ template<class flt_t, class acc_t>
 void PPPMIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 {
 
+#ifdef HPAC_TIMING
 double p3mtime1, p3mtime2;
 struct timespec tv;
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
 else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+#endif
 
   ATOM_T * _noalias const x = buffers->get_x(0);
   int nlocal = atom->nlocal;
@@ -380,10 +384,11 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   }
   if (flag) error->one(FLERR,"Out of range atoms - cannot compute PPPM");
 
+#ifdef HPAC_TIMING
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
 else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 printf("particle map time %g\n", p3mtime2-p3mtime1);
-
+#endif
 }
 
 
@@ -398,11 +403,12 @@ template<class flt_t, class acc_t>
 void PPPMIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 {
 
+#ifdef HPAC_TIMING
 double p3mtime1, p3mtime2;
 struct timespec tv;
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
 else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
 
   FFT_SCALAR * _noalias const densityThr =        \
        &(density_brick[nzlo_out][nylo_out][nxlo_out]);
@@ -520,10 +526,11 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   }
   }
 
-
+#ifdef HPAC_TIMING
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
 else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 printf("make_rho time %g\n", p3mtime2-p3mtime1);
+#endif
 }
 
 /* ----------------------------------------------------------------------
@@ -533,12 +540,12 @@ printf("make_rho time %g\n", p3mtime2-p3mtime1);
 template<class flt_t, class acc_t>
 void PPPMIntel::fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers)
 {
-
+#ifdef HPAC_TIMING
 double p3mtime1, p3mtime2;
 struct timespec tv;
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
 else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
 
   // loop over my charges, interpolate electric field from nearby grid points
   // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
@@ -625,21 +632,21 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 
   }
 
-
+#ifdef HPAC_TIMING
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
 else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 printf("fieldforce_ik time %g\n", p3mtime2-p3mtime1);
-
+#endif
 }
 
 void PPPMIntel::brick2fft()
 {
-
+#ifdef HPAC_TIMING
 double p3mtime1, p3mtime2;
 struct timespec tv;
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
 else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
 
   int nz_in = nzhi_in - nzlo_in + 1;
   int ny_in = nyhi_in - nylo_in + 1;
@@ -656,10 +663,11 @@ else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 
   remap->perform(density_fft, density_fft, work1);
 
-
+#ifdef HPAC_TIMING
 if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
 else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 printf("brick2fft time %g\n", p3mtime2-p3mtime1);
+#endif
 
 }
 
@@ -802,13 +810,13 @@ void PPPMIntel::fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers)
 template<class flt_t, class acc_t>
 void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
 {
-
+#ifdef HPAC_TIMING
    double p3mtime1, p3mtime2, p3mtime3;
   struct timespec tv;
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime1 = 0;
   else p3mtime1 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   p3mtime3 = 0.;
-
+#endif
 
   int i,j,k,n;
   double eng;
@@ -820,15 +828,15 @@ void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
     work1[n++] = density_fft[i];
     work1[n++] = ZEROF;
   }
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
   else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
   fft1->compute(work1,work1,1);
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
   else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
-
+#endif
 
   // global energy and virial contribution
 
@@ -888,15 +896,15 @@ void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
         n += 2;
       }
 
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
   else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
   fft2->compute(work2,work2,-1);
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
   else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
-
+#endif
   n = 0;
   for (k = nzlo_in; k <= nzhi_in; k++)
     for (j = nylo_in; j <= nyhi_in; j++)
@@ -915,15 +923,15 @@ void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
         work2[n+1] = -fky[j]*work1[n];
         n += 2;
       }
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
   else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
   fft2->compute(work2,work2,-1);
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
   else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
-
+#endif
 
   n = 0;
   for (k = nzlo_in; k <= nzhi_in; k++)
@@ -943,15 +951,16 @@ void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
         work2[n+1] = -fkz[k]*work1[n];
         n += 2;
       }
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
   else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+#endif
   fft2->compute(work2,work2,-1);
 
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime3 = 0;
   else p3mtime3 += (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.) - p3mtime2;
-
+#endif
   n = 0;
   for (k = nzlo_in; k <= nzhi_in; k++)
     for (j = nylo_in; j <= nyhi_in; j++)
@@ -960,11 +969,11 @@ void PPPMIntel::poisson_ik(IntelBuffers<flt_t,acc_t> *buffers)
         n += 2;
       }
 
-
+#ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime2 = 0;
   else p3mtime2 = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   printf("poisson total: %g      in ffts: %g\n", p3mtime2-p3mtime1, p3mtime3);
-
+#endif
 }
 
 
