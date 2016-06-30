@@ -118,6 +118,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   }
   #endif
 
+  #ifdef HPAC_TIMING
   double p3mtime, p3mtime_compute, p3mtime_particlemap, p3mtime_makerho, p3mtime_poisson, p3mtime_fieldforce, p3mtime_brick2fft, p3mtime_total;
   struct timespec tv;
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
@@ -127,7 +128,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   printf("Timestep duration: %g\n\n", p3mtime - p3mtime_wholetimestep);
   p3mtime_wholetimestep = p3mtime;
   p3mtime_total = p3mtime;
-
+  #endif
 
 
   int i;
@@ -231,35 +232,44 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   if (function[1]) {
     //perfrom calculations for geometric mixing
 
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_particlemap = 0;
-  else p3mtime_particlemap = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_particlemap = 0;
+    else p3mtime_particlemap = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #endif
 
     particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6, nupper_6, nlower_6,
                  nxlo_out_6, nylo_out_6, nzlo_out_6, nxhi_out_6, nyhi_out_6, nzhi_out_6);
-
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  printf("particle map time: %g\n", p3mtime - p3mtime_particlemap);
-  p3mtime_makerho = p3mtime;
-
+  
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    printf("particle map time: %g\n", p3mtime - p3mtime_particlemap);
+    p3mtime_makerho = p3mtime;
+    #endif
 
     make_rho_g();
 
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  printf("make rho time: %g\n", p3mtime - p3mtime_makerho);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    printf("make rho time: %g\n", p3mtime - p3mtime_makerho);
+    #endif
 
     cg_6->reverse_comm(this, REVERSE_RHO_G);
 
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_brick2fft = 0;
-  else p3mtime_brick2fft = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_brick2fft = 0;
+    else p3mtime_brick2fft = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #endif
 
     brick2fft(nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
 	      density_brick_g, density_fft_g, work1_6,remap_6);
 
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  printf("brick2fft time: %g\n", p3mtime - p3mtime_brick2fft);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    printf("brick2fft time: %g\n", p3mtime - p3mtime_brick2fft);
+    #endif
 
     if (differentiation_flag == 1) {
 
@@ -279,46 +289,55 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
     } else {
 
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_poisson = 0;
-  else p3mtime_poisson = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_poisson = 0;
+    else p3mtime_poisson = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #endif
+      
+    
+    poisson_ik(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
+               nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
+               nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
+               nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
+               energy_6, greensfn_6,
+               fkx_6, fky_6, fkz_6,fkx2_6, fky2_6, fkz2_6,
+               vdx_brick_g, vdy_brick_g, vdz_brick_g, virial_6, vg_6, vg2_6,
+               u_brick_g, v0_brick_g, v1_brick_g, v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
 
-      poisson_ik(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
-                 nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
-                 nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
-                 nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
-                 energy_6, greensfn_6,
-	         fkx_6, fky_6, fkz_6,fkx2_6, fky2_6, fkz2_6,
-                 vdx_brick_g, vdy_brick_g, vdz_brick_g, virial_6, vg_6, vg2_6,
-                 u_brick_g, v0_brick_g, v1_brick_g, v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    printf("poisson time: %g\n", p3mtime - p3mtime_poisson);
+    #endif
 
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  printf("poisson time: %g\n", p3mtime - p3mtime_poisson);
+    cg_6->forward_comm(this,FORWARD_IK_G);
 
-      cg_6->forward_comm(this,FORWARD_IK_G);
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fieldforce = 0;
+    else p3mtime_fieldforce = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    #endif
 
-
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fieldforce = 0;
-  else p3mtime_fieldforce = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
-      fieldforce_g_ik();
-
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  printf("fieldforce time: %g\n", p3mtime - p3mtime_fieldforce);
+    fieldforce_g_ik();
+    
+    #ifdef HPAC_TIMING
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
+    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+    printf("fieldforce time: %g\n", p3mtime - p3mtime_fieldforce);
+    #endif
 
 
-      if (evflag_atom) cg_peratom_6->forward_comm(this, FORWARD_IK_PERATOM_G);
+    if (evflag_atom) cg_peratom_6->forward_comm(this, FORWARD_IK_PERATOM_G);
     }
-    if (evflag_atom) fieldforce_g_peratom();
-  }
+      if (evflag_atom) fieldforce_g_peratom();
+    }
 
-  if (function[2]) {
+    if (function[2]) {
     //perform calculations for arithmetic mixing
 
 
     particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6, nupper_6, nlower_6,
                  nxlo_out_6, nylo_out_6, nzlo_out_6, nxhi_out_6, nyhi_out_6, nzhi_out_6);
+    
     make_rho_a();
 
     cg_6->reverse_comm(this, REVERSE_RHO_A);
@@ -357,7 +376,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
                  nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
                  nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
                  energy_6, greensfn_6,
-	         fkx_6, fky_6, fkz_6,fkx2_6, fky2_6, fkz2_6,
+                 fkx_6, fky_6, fkz_6,fkx2_6, fky2_6, fkz2_6,
                  vdx_brick_a3, vdy_brick_a3, vdz_brick_a3, virial_6, vg_6, vg2_6,
                  u_brick_a3, v0_brick_a3, v1_brick_a3, v2_brick_a3, v3_brick_a3, v4_brick_a3, v5_brick_a3);
       poisson_2s_ik(density_fft_a0, density_fft_a6,
@@ -516,10 +535,11 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
   if (triclinic) domain->lamda2x(atom->nlocal);
 
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
   printf("total p3mtime: %g\n", p3mtime - p3mtime_total);
-
+  #endif
 }
 
 
@@ -541,12 +561,11 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
                            double* vir, double** vcoeff, double** vcoeff2,
                            FFT_SCALAR*** u_pa, FFT_SCALAR*** v0_pa, FFT_SCALAR*** v1_pa, FFT_SCALAR*** v2_pa,
                            FFT_SCALAR*** v3_pa, FFT_SCALAR*** v4_pa, FFT_SCALAR*** v5_pa)
-
-
 {
-
+  #ifdef HPAC_TIMING
   double p3mtime, p3mtime_fft = 0.;
   struct timespec tv;
+  #endif
 
   int i,j,k,n;
   double eng;
@@ -558,14 +577,17 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
     wk1[n++] = ZEROF;
   }
 
-
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  #endif
 
   ft1->compute(wk1,wk1,1);
 
- if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
+  #ifdef HPAC_TIMING
+  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
+  #endif
 
 
   // if requested, compute energy and virial contribution
@@ -615,14 +637,17 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
 	wk2[n+1] = -0.5*(kx[i]-kx2[i])*wk1[n] + 0.5*(ky[j]-ky2[j])*wk1[n+1];
 	n += 2;
       }
-
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
+  #endif
+  
   ft2->compute(wk2,wk2,-1);
-
+  
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
+  #endif
 
   n = 0;
   for (k = nzlo_i; k <= nzhi_i; k++)
@@ -643,14 +668,18 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
 	  wk2[n+1] = -kz[k]*wk1[n];
 	  n += 2;
         }
-
+  
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  #endif
 
     ft2->compute(wk2,wk2,-1);
 
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
+  #endif
 
     n = 0;
     for (k = nzlo_i; k <= nzhi_i; k++)
@@ -674,15 +703,17 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
 	  n += 2;
         }
 
-
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
+  #endif
 
     ft2->compute(wk2,wk2,-1);
 
+  #ifdef HPAC_TIMING
   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
-
+  #endif
 
 
     n = 0;
@@ -698,6 +729,7 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
                                   nxlo_i, nylo_i, nzlo_i, nxhi_i, nyhi_i, nzhi_i,
                                   v0_pa, v1_pa, v2_pa, v3_pa, v4_pa, v5_pa);
 
-
+  #ifdef HPAC_TIMING
   printf("fft time %g\n", p3mtime_fft);
+  #endif
 }

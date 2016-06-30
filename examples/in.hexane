@@ -1,0 +1,43 @@
+# SPC/E water box benchmark
+
+units		real	
+atom_style	full
+
+read_data	equilibrated_data.hexane
+
+#replicate	2 4 1
+
+pair_style	lj/long/coul/long long off 9.8
+
+kspace_style	pppm/disp 1.0e-4 #no charges so we're only trying to do this for the 1/r^6 forces
+
+#lammps' how-to-24 page suggests these accuracies.  There's a faster way to do this but this is
+#safest.  It should only take up time during initialization.
+kspace_modify force/disp/real 0.0001
+kspace_modify force/disp/kspace 0.002
+
+#LJ coefficients for CH3 and CH2, code should automatically do geometric mean for 1-2 interaction
+pair_coeff	1 1 0.1744742 3.97
+pair_coeff	2 2 0.1147228 3.97	
+
+#don't actually compute bond forces, probably unnecessary w/out bonds
+#bond_style	zero
+#bond_coeff	1 1000.00 1.000
+
+neighbor        2.0 bin
+neigh_modify	every 1 delay 10 check yes
+
+
+fix 1 all rigid/small molecule
+
+timestep	2.0
+
+thermo_style    one
+thermo		50
+
+
+dump hexane all image 50 hexane*.ppm type mass zoom 2 adiam 1.75 size 1000 1000
+dump_modify hexane pad 5
+
+run		200
+
