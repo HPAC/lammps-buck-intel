@@ -51,10 +51,8 @@ class PairLJLongCoulLongIntel : public PairLJLongCoulLong {
   void compute(int eflag, int vflag, IntelBuffers<flt_t,acc_t> *buffers);
 
   template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR,
-            const int CTABLE, const int LJTABLE, const int ORDER1,
-            const int ORDER6, class flt_t, class acc_t>
-  void eval
-  (int ifrom, int ito, IntelBuffers<flt_t, acc_t> *buffers);
+            class flt_t, class acc_t>
+  void eval(int vflag, IntelBuffers<flt_t, acc_t> *buffers);
 
   // template <class flt_t, class acc_t>
   // void pack_force_const(ForceConst<flt_t> &fc, 
