@@ -34,6 +34,9 @@ using namespace LAMMPS_NS;
 #define C_FORCE_T typename ForceConst<flt_t>::c_force_t
 #define C_ENERGY_T typename ForceConst<flt_t>::c_energy_t
 #define TABLE_T typename ForceConst<flt_t>::table_t
+#define ETABLE_T typename ForceConst<flt_t>::etable_t
+
+
 
 
 /* ---------------------------------------------------------------------- */
@@ -208,17 +211,9 @@ void PairLJLongCoulLongIntel::eval
   const C_FORCE_T * _noalias const c_force = fc.c_force[0];
   const C_ENERGY_T * _noalias const c_energy = fc.c_energy[0];
   const TABLE_T * _noalias const table = fc.table;
-  const flt_t * _noalias const etable = fc.etable;
-  const flt_t * _noalias const detable = fc.detable;
-  const flt_t * _noalias const ctable = fc.ctable;
-  const flt_t * _noalias const dctable = fc.dctable;
-  const flt_t * _noalias const fdisptable = fc.fdisptable;
-  const flt_t * _noalias const dfdisptable = fc.dfdisptable;
-  const flt_t * _noalias const edisptable = fc.edisptable;
-  const flt_t * _noalias const dedisptable = fc.dedisptable;
-  const flt_t * _noalias const rdisptable = fc.rdisptable;
-  const flt_t * _noalias const drdisptable = fc.drdisptable;
- 
+  const TABLE_T * _noalias const disptable = fc.disptable;
+  const TABLE_T * _noalias const ctable = fc.ctable;
+  const ETABLE_T * _noalias const etable = fc.etable; 
   
 
   const int inum = list->inum;
@@ -329,10 +324,10 @@ void PairLJLongCoulLongIntel::eval
 	  const flt_t tablet = table[itable].f + fraction * table[itable].df;
 	  forcecoul = qtmp * q[j] * tablet;
 	  if (EFLAG) 
-	    ecoul = qtmp * q[j] * (etable[itable] +
-				   fraction * detable[itable]);
+	    ecoul = qtmp * q[j] * (etable[itable].e +
+				   fraction * etable[itable].de);
 	  if (sbindex) {
-	    const flt_t table2 = ctable[itable] + fraction * dctable[itable];
+	    const flt_t table2 = ctable[itable].f + fraction * ctable[itable].df;
 	    const flt_t prefactor = qtmp * q[j] * table2;
 	    const flt_t adjust = ((flt_t)1.0 - special_coul[sbindex]) *
 	      prefactor;
@@ -370,14 +365,14 @@ void PairLJLongCoulLongIntel::eval
 	    float rsq_lookup = rsq;
 	    const int itable = (__intel_castf32_u32(rsq_lookup) &
 				ndispmask) >> ndispshiftbits;
-	    const flt_t fdisp = (rsq - rdisptable[itable]) * drdisptable[itable];
+	    const flt_t fdisp = (rsq - disptable[itable].r) * disptable[itable].dr;
 	    const flt_t r6inv = r2inv * r2inv * r2inv;
 	    forcelj = r6inv * r6inv*c_forcei[typej].lj1 - 
-	      (fdisptable[itable] + fdisp * dfdisptable[itable]) * 
+	      (disptable[itable].f + fdisp * disptable[itable].df) * 
 	      c_energyi[typej].lj4;
 	    if(EFLAG)
 	      evdwl = r6inv * r6inv * c_energyi[typej].lj3 - 
-		(edisptable[itable] + fdisp * dedisptable[itable]) * 
+		(etable[itable].edisp + fdisp * etable[itable].dedisp) * 
 		c_energyi[typej].lj4;
 	    if(sbindex){
 	      const flt_t f = special_lj[sbindex];
@@ -550,16 +545,19 @@ void PairLJLongCoulLongIntel::pack_force_const
       fc.table[i].dr = drtable[i];
       fc.table[i].f = ftable[i];
       fc.table[i].df = dftable[i];
-      fc.etable[i] = etable[i];
-      fc.detable[i] = detable[i];
-      fc.ctable[i] = ctable[i];
-      fc.dctable[i] = dctable[i];
-      fc.fdisptable[i] = fdisptable[i];
-      fc.dfdisptable[i] = dfdisptable[i];
-      fc.edisptable[i] = edisptable[i];
-      fc.dedisptable[i] = dedisptable[i];
-      fc.rdisptable[i] = rdisptable[i];
-      fc.drdisptable[i] = drdisptable[i];
+
+      fc.etable[i].e = etable[i];
+      fc.etable[i].de = detable[i];
+      fc.etable[i].edisp = edisptable[i];
+      fc.etable[i].dedisp = dedisptable[i];
+
+      fc.disptable[i].f = fdisptable[i];
+      fc.disptable[i].df = dfdisptable[i];
+      fc.disptable[i].r = rdisptable[i];
+      fc.disptable[i].dr = drdisptable[i];
+     
+      fc.ctable[i].f = ctable[i];
+      fc.ctable[i].df = dctable[i];
 
     }
   }
@@ -574,32 +572,17 @@ void PairLJLongCoulLongIntel::ForceConst<flt_t>::set_ntypes
       _memory->destroy(c_force);
       _memory->destroy(c_energy);
       _memory->destroy(table);
+      _memory->destroy(disptable);
       _memory->destroy(etable);
-      _memory->destroy(detable);
       _memory->destroy(ctable);
-      _memory->destroy(dctable);
-      _memory->destroy(fdisptable);
-      _memory->destroy(dfdisptable);
-      _memory->destroy(edisptable);
-      _memory->destroy(dedisptable);
-      _memory->destroy(rdisptable);
-      _memory->destroy(drdisptable);
     }
     if (ntypes > 0) {
       memory->create(c_force,ntypes,ntypes,"fc.c_force");
       memory->create(c_energy,ntypes,ntypes,"fc.c_energy");
       memory->create(table,ntable,"pair:fc.table");
+      memory->create(disptable,ntable,"pair:fc.disptable");
       memory->create(etable,ntable,"pair:fc.etable");
-      memory->create(detable,ntable,"pair:fc.detable");
       memory->create(ctable,ntable,"pair:fc.ctable");
-      memory->create(dctable,ntable,"pair:fc.dctable");
-      memory->create(fdisptable,ntable,"pair:fc.disptable");
-      memory->create(dfdisptable,ntable,"pair:fc.fdfdisptable");
-      memory->create(edisptable,ntable,"pair:fc.edisptable");
-      memory->create(dedisptable,ntable,"pair:fc.dedisptable");
-      memory->create(rdisptable,ntable,"pair:fc.rdisptable");
-      memory->create(drdisptable,ntable,"pair:fc.drdisptable");
-
     }
   }
   _ntypes=ntypes;
