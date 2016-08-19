@@ -12,12 +12,29 @@
    Contributing author: Rodrigo Canales (RWTH Aachen University)
 ------------------------------------------------------------------------- */
 
+#include "math.h"
 #include "pair_lj_long_coul_long_intel.h"
 #include "suffix.h"
+#include "neighbor.h"
+#include "neigh_list.h"
+#include "neigh_request.h"
+#include "memory.h"
+#include "error.h"
+#include "force.h"
+#include "modify.h"
+#include "comm.h"
+#include "atom.h"
+#include "kspace.h"
+
+
+
 using namespace LAMMPS_NS;
 
 
-#define D_PARAM double // used for parameter pointers (it can change)
+#define C_FORCE_T typename ForceConst<flt_t>::c_force_t
+#define C_ENERGY_T typename ForceConst<flt_t>::c_energy_t
+#define TABLE_T typename ForceConst<flt_t>::table_t
+
 
 /* ---------------------------------------------------------------------- */
 
@@ -25,8 +42,7 @@ PairLJLongCoulLongIntel::PairLJLongCoulLongIntel(LAMMPS *lmp) :
   PairLJLongCoulLong(lmp)
 {
   suffix_flag |= Suffix::INTEL;
-  respa_enable = 0;
-  cut_respa = NULL;
+  
 }
 
 /* ---------------------------------------------------------------------- */
@@ -38,11 +54,11 @@ PairLJLongCoulLongIntel::~PairLJLongCoulLongIntel()
 void PairLJLongCoulLongIntel::compute(int eflag, int vflag)
 {
   if (fix->precision()==FixIntel::PREC_MODE_MIXED)
-    compute<float,double>(eflag, vflag, fix->get_mixed_buffers());
+    compute<float,double>(eflag, vflag, fix->get_mixed_buffers(), force_const_single);
   else if (fix->precision()==FixIntel::PREC_MODE_DOUBLE)
-    compute<double,double>(eflag, vflag, fix->get_double_buffers());
+    compute<double,double>(eflag, vflag, fix->get_double_buffers(), force_const_double);
   else
-    compute<float,float>(eflag, vflag, fix->get_single_buffers());
+    compute<float,float>(eflag, vflag, fix->get_single_buffers(), force_const_single);
 
   vflag_fdotr = 0;
 }
@@ -83,7 +99,8 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag)
 
 template <class flt_t, class acc_t>
 void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
-				      IntelBuffers<flt_t,acc_t> *buffers)
+				      IntelBuffers<flt_t,acc_t> *buffers,
+				      const ForceConst<flt_t> &fc)
 {
 
   // PENDING
@@ -129,22 +146,22 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 
     if (eflag) { //WITH EFLAG
       if (force->newton_pair)
-	eval<1,1,1>(ovflag, buffers);
+	eval<1,1,1>(ovflag, buffers, fc);
       else
-	eval<1,1,0>(ovflag, buffers);
+	eval<1,1,0>(ovflag, buffers, fc);
     } 
     else { // NO EFLAG
       if (force->newton_pair)
-	eval<1,0,1>(ovflag, buffers);
+	eval<1,0,1>(ovflag, buffers, fc);
       else
-	eval<1,0,0>(ovflag, buffers);
+	eval<1,0,0>(ovflag, buffers, fc);
     }
   }
   else { // NO EVFLAG
     if (force->newton_pair)
-      eval<0,0,1>(0, buffers);
+      eval<0,0,1>(0, buffers, fc);
     else
-      eval<0,0,0>(0, buffers);
+      eval<0,0,0>(0, buffers, fc);
   }
     
 
@@ -153,11 +170,12 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 
 
 
-      //  EVFLAG, EFLAG, NEWTON_PAIR, CTABLE, LJTABLE, ORDER1, ORDER6      
+      //  EVFLAG, EFLAG, NEWTON_PAIR      
 
 template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR, class flt_t, class acc_t>
 void PairLJLongCoulLongIntel::eval
-(const int vflag, IntelBuffers<flt_t, acc_t> *buffers){
+(const int vflag, IntelBuffers<flt_t, acc_t> *buffers, 
+ const ForceConst<flt_t> &fc){
 
   const int offload = 0; // Long range defined only for native mode
 
@@ -186,16 +204,34 @@ void PairLJLongCoulLongIntel::eval
   acc_t * _noalias ev_global = buffers->get_ev_global_host();
   FORCE_T * _noalias f_start = buffers->get_f();
 
+
+  const C_FORCE_T * _noalias const c_force = fc.c_force[0];
+  const C_ENERGY_T * _noalias const c_energy = fc.c_energy[0];
+  const TABLE_T * _noalias const table = fc.table;
+  const flt_t * _noalias const etable = fc.etable;
+  const flt_t * _noalias const detable = fc.detable;
+  const flt_t * _noalias const ctable = fc.ctable;
+  const flt_t * _noalias const dctable = fc.dctable;
+  const flt_t * _noalias const fdisptable = fc.fdisptable;
+  const flt_t * _noalias const dfdisptable = fc.dfdisptable;
+  const flt_t * _noalias const edisptable = fc.edisptable;
+  const flt_t * _noalias const dedisptable = fc.dedisptable;
+  const flt_t * _noalias const rdisptable = fc.rdisptable;
+  const flt_t * _noalias const drdisptable = fc.drdisptable;
+ 
+  
+
   const int inum = list->inum;
   const int * _noalias const numneigh = list->numneigh;
   const int * _noalias const cnumneigh = buffers->cnumneigh(list);
   const int * _noalias const firstneigh = buffers->firstneigh(list);
 
-  const D_PARAM * _noalias const special_coul = force->special_coul;
-  const D_PARAM * _noalias const special_lj = force->special_lj;
+  const flt_t * _noalias const special_coul = fc.special_coul;
+  const flt_t * _noalias const special_lj = fc.special_lj;
 
   const flt_t qqrd2e = force->qqrd2e;
   const flt_t g2 = g_ewald_6*g_ewald_6, g6 = g2*g2*g2, g8 = g6*g2;
+  const int ntypes = atom->ntypes + 1;
   const int eatom = this->eflag_atom;
   
   
@@ -224,16 +260,10 @@ void PairLJLongCoulLongIntel::eval
     acc_t fxtmp,fytmp,fztmp,fwtmp;
     acc_t sevdwl, secoul, sv0, sv1, sv2, sv3, sv4, sv5;
 
+    const int ptr_off = typei * ntypes;
+    const C_FORCE_T * _noalias const c_forcei = c_force + ptr_off;
+    const C_ENERGY_T * _noalias const c_energyi = c_energy + ptr_off;
 
-    D_PARAM *lj1i = lj1[typei];
-    D_PARAM *lj2i = lj2[typei];
-    D_PARAM *lj3i = lj3[typei];
-    D_PARAM *lj4i = lj4[typei];
-
-    D_PARAM *offseti = offset[typei];
-    D_PARAM *cutsqi = cutsq[typei];
-    D_PARAM *cut_ljsqi = cut_ljsq[typei];
-    // D_PARAM *cut_coulsqi = cut_coulsq[typei];
 
     const int jnum = numneigh[i];
     const int   * _noalias const jlist = firstneigh + cnumneigh[i];
@@ -256,7 +286,7 @@ void PairLJLongCoulLongIntel::eval
       const flt_t rsq = delx * delx + dely * dely + delz * delz;
       const flt_t r2inv = (flt_t)1.0/rsq;
       
-      if ( ORDER1 && rsq < cut_coulsq){
+      if ( ORDER1 && rsq < c_forcei[typej].cutsq){
 	if (!ncoultablebits || rsq <= tabinnersq){
 	  const flt_t A1 =  0.254829592;
 	  const flt_t A2 = -0.284496736;
@@ -293,10 +323,10 @@ void PairLJLongCoulLongIntel::eval
 	  const int itable = (__intel_castf32_u32(rsq_lookup) &
 			      ncoulmask) >> ncoulshiftbits;
 
-	  const flt_t fraction = (rsq_lookup - rtable[itable]) *
-	    drtable[itable];
+	  const flt_t fraction = (rsq_lookup - table[itable].r) *
+	    table[itable].dr;
 	    
-	  const flt_t tablet = ftable[itable] + fraction * dftable[itable];
+	  const flt_t tablet = table[itable].f + fraction * table[itable].df;
 	  forcecoul = qtmp * q[j] * tablet;
 	  if (EFLAG) 
 	    ecoul = qtmp * q[j] * (etable[itable] +
@@ -316,24 +346,24 @@ void PairLJLongCoulLongIntel::eval
       else {
 	forcecoul = ecoul = 0.0;	  
       }
-      if (rsq < cut_ljsqi[typej]) {
+      if (rsq < c_forcei[typej].cut_ljsq) {
 	if (ORDER6) {
 	  if (!ndisptablebits || rsq <= tabinnerdispsq ) {
 	    const flt_t r6inv = r2inv * r2inv * r2inv;
 	    const flt_t grij2 = g2 * rsq;
 	    const flt_t a2 = (flt_t)1.0/grij2;
-	    const flt_t x2 = a2 * exp(-grij2) * lj4i[typej];
-	    forcelj = r6inv * r6inv * lj1i[typej] - g8 * x2 * rsq *
+	    const flt_t x2 = a2 * exp(-grij2) * c_energyi[typej].lj4;
+	    forcelj = r6inv * r6inv * c_forcei[typej].lj1 - g8 * x2 * rsq *
 	      (((6.0 * a2 + 6.0) * a2 + 3.0) * a2 + 1.0 );
 	    if (EFLAG)
-	      evdwl = r6inv * r6inv * lj3i[typej] - g6 * x2 * ((a2 + 1.0) * a2 + 0.5);
+	      evdwl = r6inv * r6inv * c_energyi[typej].lj3 - g6 * x2 * ((a2 + 1.0) * a2 + 0.5);
 
 	    if(sbindex){
 	      const flt_t f = special_lj[sbindex];
 	      const flt_t t = r6inv * (1.0 - f);
-	      forcelj += t * (lj2i[typej] - r6inv * lj1i[typej]);
+	      forcelj += t * (c_forcei[typej].lj2 - r6inv * c_forcei[typej].lj1);
 	      if (EFLAG)
-		evdwl += t * (lj4i[typej] - r6inv * lj3i[typej]);
+		evdwl += t * (c_energyi[typej].lj4 - r6inv * c_energyi[typej].lj3);
 	    }
 	  }
 	  else{
@@ -342,25 +372,29 @@ void PairLJLongCoulLongIntel::eval
 				ndispmask) >> ndispshiftbits;
 	    const flt_t fdisp = (rsq - rdisptable[itable]) * drdisptable[itable];
 	    const flt_t r6inv = r2inv * r2inv * r2inv;
-	    forcelj = r6inv * r6inv*lj1i[typej] - 
-	      (fdisptable[itable] + fdisp * dfdisptable[itable]) * lj4i[typej];
+	    forcelj = r6inv * r6inv*c_forcei[typej].lj1 - 
+	      (fdisptable[itable] + fdisp * dfdisptable[itable]) * 
+	      c_energyi[typej].lj4;
 	    if(EFLAG)
-	      evdwl = r6inv * r6inv * lj3i[typej] - 
-		(edisptable[itable] + fdisp * dedisptable[itable]) * lj4i[typej];
+	      evdwl = r6inv * r6inv * c_energyi[typej].lj3 - 
+		(edisptable[itable] + fdisp * dedisptable[itable]) * 
+		c_energyi[typej].lj4;
 	    if(sbindex){
 	      const flt_t f = special_lj[sbindex];
 	      const flt_t t = r6inv * (1.0 - f);
-	      forcelj += t * (lj2i[typej] - r6inv * lj1i[typej]);
+	      forcelj += t * (c_forcei[typej].lj2 - 
+			      r6inv * c_forcei[typej].lj1);
 	      if (EFLAG)
-		evdwl += t * (lj4i[typej] - r6inv * lj3i[typej]);
+		evdwl += t * (c_energyi[typej].lj4 - 
+			      r6inv * c_energyi[typej].lj3);
 	    }
 	  }
 	}
 	else{
 	  const flt_t r6inv = r2inv * r2inv * r2inv;
-	  forcelj = r6inv * ( r6inv * lj1i[typej] - lj2i[typej]);
+	  forcelj = r6inv * ( r6inv * c_forcei[typej].lj1 - c_forcei[typej].lj2);
 	  if (EFLAG)
-	    evdwl = r6inv * ( r6inv * lj3i[typej] - lj4i[typej]) - offseti[typej];
+	    evdwl = r6inv * ( r6inv * c_energyi[typej].lj3 - c_energyi[typej].lj4) - c_energyi[typej].offset;
 	  if(sbindex){
 	    const flt_t factor_lj = special_lj[sbindex];
 	    forcelj *= factor_lj;
@@ -439,38 +473,11 @@ void PairLJLongCoulLongIntel::eval
 }
       
 
-
-/*
-  acc_t evdwl, ecoul, fpair;
-
-  
-  const int inum = list->inum;
-  const int nthreads = comm->nthreads;
-  const int host_start = fix->host_start_pair();
-  const int offload_end = fix->offload_end_pair();
-  const int ago = neighbor->ago;
-
-  if (evflag || vflag_fdotr)
-
-  if (ago != 0 && fix->separate_buffers() == 0) {
-    fix->start_watch(TIME_PACK);
-    #if defined(_OPENMP)
-    #pragma omp parallel default(none) shared(eflag,vflag,buffers,fc)
-    #endif
-    {
-      int ifrom, ito, tid;
-      IP_PRE_omp_range_id_align(ifrom, ito, tid, atom->nlocal + atom->nghost,
-				nthreads, sizeof(ATOM_T));
-      buffers->thr_pack(ifrom,ito,ago);
-    }
-    fix->stop_watch(TIME_PACK);
-}
-*/
-
 void PairLJLongCoulLongIntel::init_style()
 {
   PairLJLongCoulLong::init_style();
-  //neighbor->requests[neighbor->nrequest-1]->intel = 1;
+
+  neighbor->requests[neighbor->nrequest-1]->intel = 1;
 
   int ifix = modify->find_fix("package_intel");
   if (ifix < 0)
@@ -480,102 +487,122 @@ void PairLJLongCoulLongIntel::init_style()
 
   fix->pair_init_check();
 
-  // if (fix->precision() == FixIntel::PREC_MODE_MIXED)
-  //   pack_force_const(force_const_single, fix->get_mixed_buffers());
-  // else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE)
-  //   pack_force_const(force_const_double, fix->get_double_buffers());
-  // else
-  //   pack_force_const(force_const_single, fix->get_single_buffers());
+  if (fix->precision() == FixIntel::PREC_MODE_MIXED)
+     pack_force_const(force_const_single, fix->get_mixed_buffers());
+  else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE)
+    pack_force_const(force_const_double, fix->get_double_buffers());
+  else
+    pack_force_const(force_const_single, fix->get_single_buffers());
 }
 
-// template <class flt_t, class acc_t>
-// void PairLJCutCoulLongIntel::pack_force_const
-// (ForceConst<flt_t> &fc, IntelBuffers<flt_t, acc_t> *buffers){
+template <class flt_t, class acc_t>
+void PairLJLongCoulLongIntel::pack_force_const
+(ForceConst<flt_t> &fc, IntelBuffers<flt_t, acc_t> *buffers){
 
-//   int tp1 = atom->ntypes + 1;
-//   int ntable = 1;
-//   if (ncoultablebits)
-//     for (int i = 0; i < ncoultablebits; i++) 
-//       ntable *= 2;
+  int tp1 = atom->ntypes + 1;
+  int ntable = 1;
+  if (ncoultablebits)
+    for (int i = 0; i < ncoultablebits; i++) 
+      ntable *= 2;
 
-//   fc.set_ntypes(tp1, ntable, memory, _cop);
-//   buffers->set_ntypes(tp1);
-//   flt_t **cutneighsq = buffers->get_cutneighsq();
+  fc.set_ntypes(tp1, ntable, memory);
+  buffers->set_ntypes(tp1);
+  flt_t **cutneighsq = buffers->get_cutneighsq();
 
-//   // Repeat cutsq calculation because done after call to init_style
-//   double cut, cutneigh;
-//   for (int i = 1; i <= atom->ntypes; i++) {
-//     for (int j = i; j <= atom->ntypes; j++) {
-//       if (setflag[i][j] != 0 || (setflag[i][i] != 0 && setflag[j][j] != 0)) {
-//         cut = init_one(i, j);
-//         cutneigh = cut + neighbor->skin;
-//         cutsq[i][j] = cutsq[j][i] = cut*cut;
-//         cutneighsq[i][j] = cutneighsq[j][i] = cutneigh * cutneigh;
-//       }
-//     }
-//   }
+  // Repeat cutsq calculation because done after call to init_style
+  double cut, cutneigh;
+  for (int i = 1; i <= atom->ntypes; i++) {
+    for (int j = i; j <= atom->ntypes; j++) {
+      if (setflag[i][j] != 0 || (setflag[i][i] != 0 && setflag[j][j] != 0)) {
+        cut = init_one(i, j);
+        cutneigh = cut + neighbor->skin;
+        cutsq[i][j] = cutsq[j][i] = cut*cut;
+        cutneighsq[i][j] = cutneighsq[j][i] = cutneigh * cutneigh;
+      }
+    }
+  }
 
-//   fc.g_ewald = force->kspace->g_ewald;
-//   fc.tabinnersq = tabinnersq;
+  fc.g_ewald = force->kspace->g_ewald;
+  fc.tabinnersq = tabinnersq;
 
-//   for (int i = 0; i < 4; i++) {
-//     fc.special_lj[i] = force->special_lj[i];
-//     fc.special_coul[i] = force->special_coul[i];
-//     fc.special_coul[0] = 1.0;
-//     fc.special_lj[0] = 1.0;
-//   }
+  for (int i = 0; i < 4; i++) {
+    fc.special_lj[i] = force->special_lj[i];
+    fc.special_coul[i] = force->special_coul[i];
+    fc.special_coul[0] = 1.0;
+    fc.special_lj[0] = 1.0;
+  }
 
-//   for (int i = 0; i < tp1; i++) {
-//     for (int j = 0; j < tp1; j++) {
-//       fc.c_force[i][j].cutsq = cutsq[i][j];
-//       fc.c_force[i][j].cut_ljsq = cut_ljsq[i][j];
-//       fc.c_force[i][j].lj1 = lj1[i][j];
-//       fc.c_force[i][j].lj2 = lj2[i][j];
-//       fc.c_energy[i][j].lj3 = lj3[i][j];
-//       fc.c_energy[i][j].lj4 = lj4[i][j];
-//       fc.c_energy[i][j].offset = offset[i][j];
-//     }
-//   }
+  for (int i = 0; i < tp1; i++) {
+    for (int j = 0; j < tp1; j++) {
+      fc.c_force[i][j].cutsq = cutsq[i][j];
+      fc.c_force[i][j].cut_ljsq = cut_ljsq[i][j];
+      fc.c_force[i][j].lj1 = lj1[i][j];
+      fc.c_force[i][j].lj2 = lj2[i][j];
+      fc.c_energy[i][j].lj3 = lj3[i][j];
+      fc.c_energy[i][j].lj4 = lj4[i][j];
+      fc.c_energy[i][j].offset = offset[i][j];
+    }
+  }
 
-//   if (ncoultablebits) {
-//     for (int i = 0; i < ntable; i++) {
-//       fc.table[i].r = rtable[i];
-//       fc.table[i].dr = drtable[i];
-//       fc.table[i].f = ftable[i];
-//       fc.table[i].df = dftable[i];
-//       fc.etable[i] = etable[i];
-//       fc.detable[i] = detable[i];
-//       fc.ctable[i] = ctable[i];
-//       fc.dctable[i] = dctable[i];
-//     }
-//   }
+  if (ncoultablebits) {
+    for (int i = 0; i < ntable; i++) {
+      fc.table[i].r = rtable[i];
+      fc.table[i].dr = drtable[i];
+      fc.table[i].f = ftable[i];
+      fc.table[i].df = dftable[i];
+      fc.etable[i] = etable[i];
+      fc.detable[i] = detable[i];
+      fc.ctable[i] = ctable[i];
+      fc.dctable[i] = dctable[i];
+      fc.fdisptable[i] = fdisptable[i];
+      fc.dfdisptable[i] = dfdisptable[i];
+      fc.edisptable[i] = edisptable[i];
+      fc.dedisptable[i] = dedisptable[i];
+      fc.rdisptable[i] = rdisptable[i];
+      fc.drdisptable[i] = drdisptable[i];
 
-// }
+    }
+  }
 
-// template <class flt_t>
-// void PairLJLongCoulLongIntel::ForceConst<flt_t>::set_ntypes
-// (const int ntypes, const int ntable, Memory *memory) {
-//   if ( (ntypes != _ntypes || ntable != _ntable) ) {
-//     if (_ntypes > 0) {
-//       _memory->destroy(c_force);
-//       _memory->destroy(c_energy);
-//       _memory->destroy(table);
-//       _memory->destroy(etable);
-//       _memory->destroy(detable);
-//       _memory->destroy(ctable);
-//       _memory->destroy(dctable);
-//     }
-//     if (ntypes > 0) {
-//       memory->create(c_force,ntypes,ntypes,"fc.c_force");
-//       memory->create(c_energy,ntypes,ntypes,"fc.c_energy");
-//       memory->create(table,ntable,"pair:fc.table");
-//       memory->create(etable,ntable,"pair:fc.etable");
-//       memory->create(detable,ntable,"pair:fc.detable");
-//       memory->create(ctable,ntable,"pair:fc.ctable");
-//       memory->create(dctable,ntable,"pair:fc.dctable");
-//     }
-//   }
-//   _ntypes=ntypes;
-//   _ntable=ntable;
-//   _memory=memory;
-// }
+}
+
+template <class flt_t>
+void PairLJLongCoulLongIntel::ForceConst<flt_t>::set_ntypes
+(const int ntypes, const int ntable, Memory *memory) {
+  if ( (ntypes != _ntypes || ntable != _ntable) ) {
+    if (_ntypes > 0) {
+      _memory->destroy(c_force);
+      _memory->destroy(c_energy);
+      _memory->destroy(table);
+      _memory->destroy(etable);
+      _memory->destroy(detable);
+      _memory->destroy(ctable);
+      _memory->destroy(dctable);
+      _memory->destroy(fdisptable);
+      _memory->destroy(dfdisptable);
+      _memory->destroy(edisptable);
+      _memory->destroy(dedisptable);
+      _memory->destroy(rdisptable);
+      _memory->destroy(drdisptable);
+    }
+    if (ntypes > 0) {
+      memory->create(c_force,ntypes,ntypes,"fc.c_force");
+      memory->create(c_energy,ntypes,ntypes,"fc.c_energy");
+      memory->create(table,ntable,"pair:fc.table");
+      memory->create(etable,ntable,"pair:fc.etable");
+      memory->create(detable,ntable,"pair:fc.detable");
+      memory->create(ctable,ntable,"pair:fc.ctable");
+      memory->create(dctable,ntable,"pair:fc.dctable");
+      memory->create(fdisptable,ntable,"pair:fc.disptable");
+      memory->create(dfdisptable,ntable,"pair:fc.fdfdisptable");
+      memory->create(edisptable,ntable,"pair:fc.edisptable");
+      memory->create(dedisptable,ntable,"pair:fc.dedisptable");
+      memory->create(rdisptable,ntable,"pair:fc.rdisptable");
+      memory->create(drdisptable,ntable,"pair:fc.drdisptable");
+
+    }
+  }
+  _ntypes=ntypes;
+  _ntable=ntable;
+  _memory=memory;
+}

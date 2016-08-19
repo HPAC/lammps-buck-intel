@@ -48,15 +48,17 @@ class PairLJLongCoulLongIntel : public PairLJLongCoulLong {
   class ForceConst;
   
   template <class flt_t, class acc_t>
-  void compute(int eflag, int vflag, IntelBuffers<flt_t,acc_t> *buffers);
+  void compute(int eflag, int vflag, IntelBuffers<flt_t,acc_t> *buffers,
+	       const ForceConst<flt_t> &fc);
 
   template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR,
             class flt_t, class acc_t>
-  void eval(int vflag, IntelBuffers<flt_t, acc_t> *buffers);
+  void eval(int vflag, IntelBuffers<flt_t, acc_t> *buffers, 
+	    const ForceConst<flt_t> &fc);
 
-  // template <class flt_t, class acc_t>
-  // void pack_force_const(ForceConst<flt_t> &fc, 
-  //                       IntelBuffers<flt_t, acc_t> *buffers);
+  template <class flt_t, class acc_t>
+  void pack_force_const(ForceConst<flt_t> &fc, 
+			IntelBuffers<flt_t, acc_t> *buffers);
 
   template <class flt_t>
   class ForceConst {
@@ -71,12 +73,13 @@ class PairLJLongCoulLongIntel : public PairLJLongCoulLong {
     c_energy_t **c_energy;
     table_t *table;
     flt_t *etable, *detable, *ctable, *dctable;
+    flt_t *dfdisptable, *fdisptable, *edisptable, *dedisptable,
+      *rdisptable, *drdisptable;
 
     ForceConst() : _ntypes(0), _ntable(0) {}
-    //~ForceConst() { set_ntypes(0,0,NULL); }
-    ~ForceConst() { }
-
-    //void set_ntypes(const int ntypes, const int ntable, Memory *memory);
+    ~ForceConst() { set_ntypes(0,0,NULL); }
+        
+    void set_ntypes(const int ntypes, const int ntable, Memory *memory);
 
    private:
     int _ntypes, _ntable;
