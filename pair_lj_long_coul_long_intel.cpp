@@ -134,6 +134,9 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
     buffers->thr_pack(ifrom,ito,ago);
   }
   fix->stop_watch(TIME_PACK);
+  const int ORDER1 = ewald_order&(1<<1);
+  const int ORDER6 = ewald_order&(1<<6);
+
 
   // Dispatch the templated eval functions
 
@@ -148,23 +151,83 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 
 
     if (eflag) { //WITH EFLAG
-      if (force->newton_pair)
-	eval<1,1,1>(ovflag, buffers, fc);
+
+      if(ORDER1)
+	if(ORDER6) // 1,1>
+	  if (force->newton_pair)
+	    eval<1,1,1,1,1>(ovflag, buffers, fc);
+	  else
+	    eval<1,1,0,1,1>(ovflag, buffers, fc);
+	else       //1,0>
+	  if (force->newton_pair)
+	    eval<1,1,1,1,0>(ovflag, buffers, fc);
+	  else
+	    eval<1,1,0,1,0>(ovflag, buffers, fc);
       else
-	eval<1,1,0>(ovflag, buffers, fc);
+	if(ORDER6) // 0,1>
+	  if (force->newton_pair)
+	    eval<1,1,1,0,1>(ovflag, buffers, fc);
+	  else
+	    eval<1,1,0,0,1>(ovflag, buffers, fc);
+	else       //0,0>
+	  if (force->newton_pair)
+	    eval<1,1,1,0,0>(ovflag, buffers, fc);
+	  else
+	    eval<1,1,0,0,0>(ovflag, buffers, fc);
+
     } 
-    else { // NO EFLAG
-      if (force->newton_pair)
-	eval<1,0,1>(ovflag, buffers, fc);
+    else { // NO EFLAG <1,0,
+
+      if(ORDER1)
+	if(ORDER6) // 1,1>
+	  if (force->newton_pair)
+	    eval<1,0,1,1,1>(ovflag, buffers, fc);
+	  else
+	    eval<1,0,0,1,1>(ovflag, buffers, fc);
+	else       //1,0>
+	  if (force->newton_pair)
+	    eval<1,0,1,1,0>(ovflag, buffers, fc);
+	  else
+	    eval<1,0,0,1,0>(ovflag, buffers, fc);
       else
-	eval<1,0,0>(ovflag, buffers, fc);
+	if(ORDER6) // 0,1>
+	  if (force->newton_pair)
+	    eval<1,0,1,0,1>(ovflag, buffers, fc);
+	  else
+	    eval<1,0,0,0,1>(ovflag, buffers, fc);
+	else       //0,0>
+	  if (force->newton_pair)
+	    eval<1,0,1,0,0>(ovflag, buffers, fc);
+	  else
+	    eval<1,0,0,0,0>(ovflag, buffers, fc);
+
     }
   }
-  else { // NO EVFLAG
-    if (force->newton_pair)
-      eval<0,0,1>(0, buffers, fc);
-    else
-      eval<0,0,0>(0, buffers, fc);
+  else { // NO EVFLAG<0,0, (0
+    
+      if(ORDER1)
+	if(ORDER6) // 1,1>
+	  if (force->newton_pair)
+	    eval<0,0,1,1,1>(0, buffers, fc);
+	  else
+	    eval<0,0,0,1,1>(0, buffers, fc);
+	else       //1,0>
+	  if (force->newton_pair)
+	    eval<0,0,1,1,0>(0, buffers, fc);
+	  else
+	    eval<0,0,0,1,0>(0, buffers, fc);
+      else
+	if(ORDER6) // 0,1>
+	  if (force->newton_pair)
+	    eval<0,0,1,0,1>(0, buffers, fc);
+	  else
+	    eval<0,0,0,0,1>(0, buffers, fc);
+	else       //0,0>
+	  if (force->newton_pair)
+	    eval<0,0,1,0,0>(0, buffers, fc);
+	  else
+	    eval<0,0,0,0,0>(0, buffers, fc);  
+
   }
     
 
@@ -175,15 +238,14 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 
       //  EVFLAG, EFLAG, NEWTON_PAIR      
 
-template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR, class flt_t, class acc_t>
+template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR, 
+	  const int ORDER1, const int ORDER6, class flt_t, class acc_t>
 void PairLJLongCoulLongIntel::eval
 (const int vflag, IntelBuffers<flt_t, acc_t> *buffers, 
  const ForceConst<flt_t> &fc){
 
   const int offload = 0; // Long range defined only for native mode
 
-  const int ORDER1 = ewald_order&(1<<1);
-  const int ORDER6 = ewald_order&(1<<6);
 
   int nall = atom->nlocal + atom->nghost;
   int nlocal = atom->nlocal;

@@ -52,6 +52,7 @@ class PairLJLongCoulLongIntel : public PairLJLongCoulLong {
 	       const ForceConst<flt_t> &fc);
 
   template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR,
+	    const int, const int,
             class flt_t, class acc_t>
   void eval(int vflag, IntelBuffers<flt_t, acc_t> *buffers, 
 	    const ForceConst<flt_t> &fc);
