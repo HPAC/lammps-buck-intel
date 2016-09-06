@@ -187,25 +187,27 @@ void PairLJLongCoulLongIntel::eval
 
   int nall = atom->nlocal + atom->nghost;
   int nlocal = atom->nlocal;
-  int nthreads = comm->nthreads;
-  
+  const int nthreads = comm->nthreads;
+  const int minlocal = 0;  
 
   int f_length;
   if (NEWTON_PAIR)
     f_length = nall;
   else
-    f_length = nlocal;                                                  
+    f_length = nlocal;
+
   const int f_stride = buffers->get_stride(f_length);			       
 
   const int ago = neighbor->ago;
+  IP_PRE_pack_separate_buffers(fix, buffers, ago, offload, nlocal, nall);
 
   // Extracting data from intel buffers
   
   ATOM_T * _noalias const x = buffers->get_x(0);
   flt_t * _noalias const q = buffers->get_q(0);
-  FORCE_T * _noalias const f = buffers->get_f();
+  FORCE_T * _noalias const f_start = buffers->get_f();
   acc_t * _noalias ev_global = buffers->get_ev_global_host();
-  FORCE_T * _noalias f_start = buffers->get_f();
+  
 
 
   const C_FORCE_T * _noalias const c_force = fc.c_force[0];
@@ -233,11 +235,25 @@ void PairLJLongCoulLongIntel::eval
   acc_t oevdwl, oecoul, ov0, ov1, ov2, ov3, ov4, ov5;
   if (EVFLAG) {
     oevdwl = oecoul = (acc_t)0;
-    ov0 = ov1 = ov2 = ov3 = ov4 = ov5 = (acc_t)0;
+    if(vflag) ov0 = ov1 = ov2 = ov3 = ov4 = ov5 = (acc_t)0;
   }
+
+
+
+#if defined(_OPENMP)
+#pragma omp parallel default(none)			\
+  shared(f_start,f_stride,nlocal,nall,minlocal,vflag)   \
+  reduction(+:oevdwl,oecoul,ov0,ov1,ov2,ov3,ov4,ov5)
+#endif
+  {
 
   int iifrom, iito, tid;
   IP_PRE_omp_range_id(iifrom, iito, tid, inum, nthreads);
+
+
+  FORCE_T * _noalias const f = f_start - minlocal + (tid * f_stride);
+  memset(f + minlocal, 0, f_stride * sizeof(FORCE_T));
+
 
   for (int i = iifrom; i < iito; ++i){
 
@@ -253,6 +269,7 @@ void PairLJLongCoulLongIntel::eval
     const flt_t qtmp = q[i];    
 
     acc_t fxtmp,fytmp,fztmp,fwtmp;
+    fxtmp = fytmp = fztmp = (acc_t)0;
     acc_t sevdwl, secoul, sv0, sv1, sv2, sv3, sv4, sv5;
 
     const int ptr_off = typei * ntypes;
@@ -263,6 +280,16 @@ void PairLJLongCoulLongIntel::eval
     const int jnum = numneigh[i];
     const int   * _noalias const jlist = firstneigh + cnumneigh[i];
     
+    if (EVFLAG) {
+      if (EFLAG) fwtmp = sevdwl = secoul = (acc_t)0;
+      if (vflag == 1) sv0 = sv1 = sv2 = sv3 = sv4 = sv5 = (acc_t)0;
+    }
+    
+    #if defined(LMP_SIMD_COMPILER)
+    #pragma vector aligned
+    #pragma simd reduction(+:fxtmp, fytmp, fztmp, fwtmp, sevdwl,	\
+			     sv0, sv1, sv2, sv3, sv4, sv5)
+    #endif
     for(int jj = 0; jj < jnum; ++jj) {
       
       flt_t forcecoul, forcelj, evdwl, ecoul;
@@ -271,9 +298,9 @@ void PairLJLongCoulLongIntel::eval
       const int sbindex = jlist[jj] >> SBBITS & 3;
       const int j = jlist[jj] & NEIGHMASK;
       
-      const flt_t delx = x[j].x - xtmp;
-      const flt_t dely = x[j].y - ytmp;
-      const flt_t delz = x[j].z - ztmp;
+      const flt_t delx = xtmp - x[j].x;
+      const flt_t dely = ytmp - x[j].y;
+      const flt_t delz = ztmp - x[j].z;
       const int typej = x[j].w;
 
 
@@ -438,15 +465,17 @@ void PairLJLongCoulLongIntel::eval
     IP_PRE_ev_tally_atomq(EVFLAG, EFLAG, vflag, f, fwtmp);
     
   } //for ii
-  if (vflag == 2){
-  #if defined(_OPENMP) && 0
+  if (vflag == 2)
+    {
+  #if defined(_OPENMP)
     #pragma omp barrier
   #endif
     IP_PRE_fdotr_acc_force(NEWTON_PAIR, EVFLAG,  EFLAG, vflag, eatom, nall,
-      nlocal, 0, nthreads, f, f_stride,
-      x, offload);
-  }
-  if (EVFLAG) {
+    			   nlocal, minlocal, nthreads, f_start, f_stride,
+    			   x, offload);
+    }
+}  // End parallel region
+if (EVFLAG) {
     if (EFLAG) {
       ev_global[0] = oevdwl;
       ev_global[1] = oecoul;
@@ -460,6 +489,7 @@ void PairLJLongCoulLongIntel::eval
       ev_global[7] = ov5;
     }    
   }
+
   if (EVFLAG)
     fix->add_result_array(f_start, ev_global, offload, eatom, 0, vflag);
   else
