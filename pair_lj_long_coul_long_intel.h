@@ -43,6 +43,11 @@ class PairLJLongCoulLongIntel : public PairLJLongCoulLong {
 
  private:
   FixIntel *fix;
+  
+  #ifdef _LMP_INTEL_OFFLOAD
+  int _use_base;
+  #endif
+
 
   template <class flt_t>
   class ForceConst;

@@ -67,36 +67,6 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag)
 }
 
 
-// void PairLJLongCoulLongIntel::compute_inner(int eflag, int vflag)
-// {
-//   if (fix->precision()==FixIntel::PREC_MODE_MIXED)
-//     compute_inner<float,double>(eflag, vflag, fix->get_mixed_buffers(),
-//                           force_const_single);
-//   else if (fix->precision()==FixIntel::PREC_MODE_DOUBLE)
-//     compute_inner<double,double>(eflag, vflag, fix->get_double_buffers(),
-//                            force_const_double);
-//   else
-//     compute_inner<float,float>(eflag, vflag, fix->get_single_buffers(),
-//                          force_const_single);
-
-//   vflag_fdotr = 0;
-// }
-
-// void PairLJLongCoulLongIntel::compute_outer(int eflag, int vflag)
-// {
-//   if (fix->precision()==FixIntel::PREC_MODE_MIXED)
-//     compute_outer<float,double>(eflag, vflag, fix->get_mixed_buffers(),
-//                           force_const_single);
-//   else if (fix->precision()==FixIntel::PREC_MODE_DOUBLE)
-//     compute_outer<double,double>(eflag, vflag, fix->get_double_buffers(),
-//                            force_const_double);
-//   else
-//     compute_outer<float,float>(eflag, vflag, fix->get_single_buffers(),
-//                          force_const_single);
-
-//   vflag_fdotr = 0;
-// }
-
 /* ---------------------------------------------------------------------- */
 
 
@@ -106,8 +76,12 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 				      const ForceConst<flt_t> &fc)
 {
 
-  // PENDING
-  // Call base !!
+  #ifdef _LMP_INTEL_OFFLOAD
+  if (_use_base) {
+    PairLJLongCoulLong::compute(eflag, vflag);
+    return;
+  }
+  #endif
 
 
   if (eflag || vflag)
@@ -124,9 +98,9 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
   //Pack the data into the internal array
   
   fix->start_watch(TIME_PACK);
-#if defined(_OPENMP)
-#pragma omp parallel default(none) shared(eflag, vflag, buffers)
-#endif
+  #if defined(_OPENMP)
+  #pragma omp parallel default(none) shared(eflag, vflag, buffers)
+  #endif
   {
     int ifrom, ito, tid;
     IP_PRE_omp_range_id_align(ifrom, ito, tid, atom->nlocal + atom->nghost,
@@ -236,7 +210,7 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 
 
 
-      //  EVFLAG, EFLAG, NEWTON_PAIR      
+      //  EVFLAG, EFLAG, NEWTON_PAIR, ORDER1, ORDER6      
 
 template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR, 
 	  const int ORDER1, const int ORDER6, class flt_t, class acc_t>
@@ -562,7 +536,16 @@ if (EVFLAG) {
 
 void PairLJLongCoulLongIntel::init_style()
 {
+
   PairLJLongCoulLong::init_style();
+
+  #ifdef _LMP_INTEL_OFFLOAD
+  _use_base = 0;
+  if (fix->offload_balance() != 0.0) {
+    _use_base = 1;
+    return;
+  }
+  #endif
 
   neighbor->requests[neighbor->nrequest-1]->intel = 1;
 
