@@ -125,87 +125,298 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
 
 
     if (eflag) { //WITH EFLAG
-
-      if(ORDER1)
-	if(ORDER6) // 1,1>
-	  if (force->newton_pair)
-	    eval<1,1,1,1,1>(ovflag, buffers, fc);
+      if (!ndisptablebits)
+	if (!ncoultablebits) //// 0,0>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,0,0>
+	      if (force->newton_pair)
+		eval<1,1,1,1,1,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,1,0,0>(ovflag, buffers, fc);
+	    else       //1,0,0,0>
+	      if (force->newton_pair)
+		eval<1,1,1,1,0,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,0,0,0>(ovflag, buffers, fc);
 	  else
-	    eval<1,1,0,1,1>(ovflag, buffers, fc);
-	else       //1,0>
-	  if (force->newton_pair)
-	    eval<1,1,1,1,0>(ovflag, buffers, fc);
+	    if(ORDER6) // 0,1,0,0>
+	      if (force->newton_pair)
+		eval<1,1,1,0,1,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,1,0,0>(ovflag, buffers, fc);
+	    else       //0,0,0,0>
+	      if (force->newton_pair)
+		eval<1,1,1,0,0,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,0,0,0>(ovflag, buffers, fc);
+	else                //// 0,1>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,0,1>
+	      if (force->newton_pair)
+		eval<1,1,1,1,1,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,1,0,1>(ovflag, buffers, fc);
+	    else       //1,0,0,1>
+	      if (force->newton_pair)
+		eval<1,1,1,1,0,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,0,0,1>(ovflag, buffers, fc);
 	  else
-	    eval<1,1,0,1,0>(ovflag, buffers, fc);
+	    if(ORDER6) // 0,1,0,1>
+	      if (force->newton_pair)
+		eval<1,1,1,0,1,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,1,0,1>(ovflag, buffers, fc);
+	    else       //0,0,0,1>
+	      if (force->newton_pair)
+		eval<1,1,1,0,0,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,0,0,1>(ovflag, buffers, fc);
       else
-	if(ORDER6) // 0,1>
-	  if (force->newton_pair)
-	    eval<1,1,1,0,1>(ovflag, buffers, fc);
+	if (!ncoultablebits) //// 1,0>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,1,0>
+	      if (force->newton_pair)
+		eval<1,1,1,1,1,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,1,1,0>(ovflag, buffers, fc);
+	    else       //1,0,1,0>
+	      if (force->newton_pair)
+		eval<1,1,1,1,0,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,0,1,0>(ovflag, buffers, fc);
 	  else
-	    eval<1,1,0,0,1>(ovflag, buffers, fc);
-	else       //0,0>
-	  if (force->newton_pair)
-	    eval<1,1,1,0,0>(ovflag, buffers, fc);
+	    if(ORDER6) // 0,1,1,0>
+	      if (force->newton_pair)
+		eval<1,1,1,0,1,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,1,1,0>(ovflag, buffers, fc);
+	    else       //0,0,1,0>
+	      if (force->newton_pair)
+		eval<1,1,1,0,0,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,0,1,0>(ovflag, buffers, fc);
+	else                //// 1,1>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,1,1>
+	      if (force->newton_pair)
+		eval<1,1,1,1,1,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,1,1,1>(ovflag, buffers, fc);
+	    else       //1,0,1,1>
+	      if (force->newton_pair)
+		eval<1,1,1,1,0,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,1,0,1,1>(ovflag, buffers, fc);
 	  else
-	    eval<1,1,0,0,0>(ovflag, buffers, fc);
-
+	    if(ORDER6) // 0,1,1,1>
+	      if (force->newton_pair)
+		eval<1,1,1,0,1,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,1,1,1>(ovflag, buffers, fc);
+	    else       //0,0,1,1>
+	      if (force->newton_pair)
+		eval<1,1,1,0,0,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,1,0,0,0,1,1>(ovflag, buffers, fc);
     } 
     else { // NO EFLAG <1,0,
-
-      if(ORDER1)
-	if(ORDER6) // 1,1>
-	  if (force->newton_pair)
-	    eval<1,0,1,1,1>(ovflag, buffers, fc);
+      if (!ndisptablebits)
+	if (!ncoultablebits) //// 0,0>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,0,0>
+	      if (force->newton_pair)
+		eval<1,0,1,1,1,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,1,0,0>(ovflag, buffers, fc);
+	    else       //1,0,0,0>
+	      if (force->newton_pair)
+		eval<1,0,1,1,0,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,0,0,0>(ovflag, buffers, fc);
 	  else
-	    eval<1,0,0,1,1>(ovflag, buffers, fc);
-	else       //1,0>
-	  if (force->newton_pair)
-	    eval<1,0,1,1,0>(ovflag, buffers, fc);
+	    if(ORDER6) // 0,1,0,0>
+	      if (force->newton_pair)
+		eval<1,0,1,0,1,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,1,0,0>(ovflag, buffers, fc);
+	    else       //0,0,0,0>
+	      if (force->newton_pair)
+		eval<1,0,1,0,0,0,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,0,0,0>(ovflag, buffers, fc);
+	else                //// 0,1>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,0,1>
+	      if (force->newton_pair)
+		eval<1,0,1,1,1,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,1,0,1>(ovflag, buffers, fc);
+	    else       //1,0,0,1>
+	      if (force->newton_pair)
+		eval<1,0,1,1,0,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,0,0,1>(ovflag, buffers, fc);
 	  else
-	    eval<1,0,0,1,0>(ovflag, buffers, fc);
+	    if(ORDER6) // 0,1,0,1>
+	      if (force->newton_pair)
+		eval<1,0,1,0,1,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,1,0,1>(ovflag, buffers, fc);
+	    else       //0,0,0,1>
+	      if (force->newton_pair)
+		eval<1,0,1,0,0,0,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,0,0,1>(ovflag, buffers, fc);
       else
-	if(ORDER6) // 0,1>
-	  if (force->newton_pair)
-	    eval<1,0,1,0,1>(ovflag, buffers, fc);
+	if (!ncoultablebits) //// 1,0>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,1,0>
+	      if (force->newton_pair)
+		eval<1,0,1,1,1,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,1,1,0>(ovflag, buffers, fc);
+	    else       //1,0,1,0>
+	      if (force->newton_pair)
+		eval<1,0,1,1,0,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,0,1,0>(ovflag, buffers, fc);
 	  else
-	    eval<1,0,0,0,1>(ovflag, buffers, fc);
-	else       //0,0>
-	  if (force->newton_pair)
-	    eval<1,0,1,0,0>(ovflag, buffers, fc);
-	  else
-	    eval<1,0,0,0,0>(ovflag, buffers, fc);
+	    if(ORDER6) // 0,1,1,0>
+	      if (force->newton_pair)
+		eval<1,0,1,0,1,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,1,1,0>(ovflag, buffers, fc);
+	    else       //0,0,1,0>
+	      if (force->newton_pair)
+		eval<1,0,1,0,0,1,0>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,0,1,0>(ovflag, buffers, fc);
 
+	else                //// 1,1>
+	  if(ORDER1)
+	    if(ORDER6) // 1,1,1,1>
+	      if (force->newton_pair)
+		eval<1,0,1,1,1,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,1,1,1>(ovflag, buffers, fc);
+	    else       //1,0,1,1>
+	      if (force->newton_pair)
+		eval<1,0,1,1,0,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,1,0,1,1>(ovflag, buffers, fc);
+	  else
+	    if(ORDER6) // 0,1,1,1>
+	      if (force->newton_pair)
+		eval<1,0,1,0,1,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,1,1,1>(ovflag, buffers, fc);
+	    else       //0,0,1,1>
+	      if (force->newton_pair)
+		eval<1,0,1,0,0,1,1>(ovflag, buffers, fc);
+	      else
+		eval<1,0,0,0,0,1,1>(ovflag, buffers, fc);
     }
   }
   else { // NO EVFLAG<0,0, (0
-    
-      if(ORDER1)
-	if(ORDER6) // 1,1>
-	  if (force->newton_pair)
-	    eval<0,0,1,1,1>(0, buffers, fc);
-	  else
-	    eval<0,0,0,1,1>(0, buffers, fc);
-	else       //1,0>
-	  if (force->newton_pair)
-	    eval<0,0,1,1,0>(0, buffers, fc);
-	  else
-	    eval<0,0,0,1,0>(0, buffers, fc);
-      else
-	if(ORDER6) // 0,1>
-	  if (force->newton_pair)
-	    eval<0,0,1,0,1>(0, buffers, fc);
-	  else
-	    eval<0,0,0,0,1>(0, buffers, fc);
-	else       //0,0>
-	  if (force->newton_pair)
-	    eval<0,0,1,0,0>(0, buffers, fc);
-	  else
-	    eval<0,0,0,0,0>(0, buffers, fc);  
+    if (!ndisptablebits)
+      if (!ncoultablebits) //// 0,0>
+	if(ORDER1)
+	  if(ORDER6) // 1,1,0,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,1,0,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,1,0,0>(0, buffers, fc);
+	  else       //1,0,0,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,0,0,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,0,0,0>(0, buffers, fc);
+	else
+	  if(ORDER6) // 0,1,0,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,1,0,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,1,0,0>(0, buffers, fc);
+	  else       //0,0,0,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,0,0,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,0,0,0>(0, buffers, fc);  
+
+      else                //// 0,1>
+	if(ORDER1)
+	  if(ORDER6) // 1,1,0,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,1,0,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,1,0,1>(0, buffers, fc);
+	  else       //1,0,0,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,0,0,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,0,0,1>(0, buffers, fc);
+	else
+	  if(ORDER6) // 0,1,0,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,1,0,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,1,0,1>(0, buffers, fc);
+	  else       //0,0,0,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,0,0,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,0,0,1>(0, buffers, fc);  
+    else
+      if (!ncoultablebits) //// 1,0>
+	if(ORDER1)
+	  if(ORDER6) // 1,1,1,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,1,1,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,1,1,0>(0, buffers, fc);
+	  else       //1,0,1,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,0,1,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,0,1,0>(0, buffers, fc);
+	else
+	  if(ORDER6) // 0,1,1,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,1,1,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,1,1,0>(0, buffers, fc);
+	  else       //0,0,1,0>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,0,1,0>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,0,1,0>(0, buffers, fc);  
+      else                //// 1,1>	  
+	if(ORDER1)
+	  if(ORDER6) // 1,1,1,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,1,1,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,1,1,1>(0, buffers, fc);
+	  else       //1,0,1,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,1,0,1,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,1,0,1,1>(0, buffers, fc);
+	else
+	  if(ORDER6) // 0,1,1,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,1,1,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,1,1,1>(0, buffers, fc);
+	  else       //0,0,1,1>
+	    if (force->newton_pair)
+	      eval<0,0,1,0,0,1,1>(0, buffers, fc);
+	    else
+	      eval<0,0,0,0,0,1,1>(0, buffers, fc);  
 
   }
     
-
-
 } // end ::compute
 
 
@@ -213,7 +424,9 @@ void PairLJLongCoulLongIntel::compute(int eflag, int vflag,
       //  EVFLAG, EFLAG, NEWTON_PAIR, ORDER1, ORDER6      
 
 template <const int EVFLAG, const int EFLAG, const int NEWTON_PAIR, 
-	  const int ORDER1, const int ORDER6, class flt_t, class acc_t>
+	  const int ORDER1, const int ORDER6, 
+	  const int DISPTABLE, const int COULTABLE,
+	  class flt_t, class acc_t>
 void PairLJLongCoulLongIntel::eval
 (const int vflag, IntelBuffers<flt_t, acc_t> *buffers, 
  const ForceConst<flt_t> &fc){
@@ -345,7 +558,7 @@ void PairLJLongCoulLongIntel::eval
       const flt_t r2inv = (flt_t)1.0/rsq;
       
       if ( ORDER1 && rsq < c_forcei[typej].cutsq){
-	if (!ncoultablebits || rsq <= tabinnersq){
+	if (!COULTABLE || rsq <= tabinnersq){
 	  const flt_t A1 =  0.254829592;
 	  const flt_t A2 = -0.284496736;
 	  const flt_t A3 =  1.421413741;
@@ -406,7 +619,7 @@ void PairLJLongCoulLongIntel::eval
       }
       if (rsq < c_forcei[typej].cut_ljsq) {
 	if (ORDER6) {
-	  if (!ndisptablebits || rsq <= tabinnerdispsq ) {
+	  if (!DISPTABLE || rsq <= tabinnerdispsq ) {
 	    const flt_t r6inv = r2inv * r2inv * r2inv;
 	    const flt_t grij2 = g2 * rsq;
 	    const flt_t a2 = (flt_t)1.0/grij2;
@@ -558,20 +771,29 @@ void PairLJLongCoulLongIntel::init_style()
   fix->pair_init_check();
 
   if (fix->precision() == FixIntel::PREC_MODE_MIXED)
-     pack_force_const(force_const_single, fix->get_mixed_buffers());
+    if(ncoultablebits)
+      pack_force_const<1>(force_const_single, fix->get_mixed_buffers());
+    else
+      pack_force_const<0>(force_const_single, fix->get_mixed_buffers());
   else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE)
-    pack_force_const(force_const_double, fix->get_double_buffers());
+    if(ncoultablebits)
+      pack_force_const<1>(force_const_double, fix->get_double_buffers());
+    else
+      pack_force_const<0>(force_const_double, fix->get_double_buffers());
   else
-    pack_force_const(force_const_single, fix->get_single_buffers());
+    if(ncoultablebits)
+      pack_force_const<1>(force_const_single, fix->get_single_buffers());
+    else
+      pack_force_const<0>(force_const_single, fix->get_single_buffers());
 }
 
-template <class flt_t, class acc_t>
+template <const int COULTABLE, class flt_t, class acc_t>
 void PairLJLongCoulLongIntel::pack_force_const
 (ForceConst<flt_t> &fc, IntelBuffers<flt_t, acc_t> *buffers){
 
   int tp1 = atom->ntypes + 1;
   int ntable = 1;
-  if (ncoultablebits)
+  if (COULTABLE)
     for (int i = 0; i < ncoultablebits; i++) 
       ntable *= 2;
 
