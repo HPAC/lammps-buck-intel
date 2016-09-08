@@ -62,8 +62,8 @@ class PPPMDispIntel : public PPPMDisp {
   // template<class flt_t, class acc_t>
   // void particle_map(IntelBuffers<flt_t,acc_t> *buffers);
   // template<class flt_t, class acc_t>
-  // void make_rho(IntelBuffers<flt_t,acc_t> *buffers);
-  // template<class flt_t, class acc_t>
+  void make_rho(IntelBuffers<flt_t,acc_t> *buffers);
+  template<class flt_t, class acc_t>
   // void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers);
   // template<class flt_t, class acc_t>
   // void fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers);

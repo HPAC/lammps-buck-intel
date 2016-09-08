@@ -13,6 +13,7 @@
 
 /* ----------------------------------------------------------------------
    Contributing author: William McDoniel (RWTH Aachen University)
+                        Rodrigo Canales (RWTH Aachen University)
 ------------------------------------------------------------------------- */
 
 
@@ -184,10 +185,12 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   if (function[0]) {
     //perfrom calculations for coulomb interactions only
 
-    particle_map_c(delxinv, delyinv, delzinv, shift, part2grid, nupper, nlower,
-                 nxlo_out, nylo_out, nzlo_out, nxhi_out, nyhi_out, nzhi_out);
-
-    make_rho_c();
+    // particle_map_c(delxinv, delyinv, delzinv, shift, part2grid, nupper, nlower,
+    //              nxlo_out, nylo_out, nzlo_out, nxhi_out, nyhi_out, nzhi_out);
+    
+    particle_map<1,float,double>(fix->get_mixed_buffers());
+    make_rho<1,float,double>(fix->get_mixed_buffers());
+    //make_rho_c();
 
     cg->reverse_comm(this,REVERSE_RHO);
 
@@ -237,9 +240,10 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     else p3mtime_particlemap = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
     #endif
 
-    particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6, nupper_6, nlower_6,
-                 nxlo_out_6, nylo_out_6, nzlo_out_6, nxhi_out_6, nyhi_out_6, nzhi_out_6);
-  
+    // particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6, nupper_6, nlower_6,
+    //              nxlo_out_6, nylo_out_6, nzlo_out_6, nxhi_out_6, nyhi_out_6, nzhi_out_6);
+    particle_map<6,float,double>(fix->get_mixed_buffers());  
+
     #ifdef HPAC_TIMING
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
     else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
@@ -247,7 +251,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     p3mtime_makerho = p3mtime;
     #endif
 
-    make_rho_g();
+    make_rho<6,float,double>(fix->get_mixed_buffers());
+    // make_rho_g();
 
     #ifdef HPAC_TIMING
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
@@ -335,9 +340,10 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     //perform calculations for arithmetic mixing
 
 
-    particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6, nupper_6, nlower_6,
-                 nxlo_out_6, nylo_out_6, nzlo_out_6, nxhi_out_6, nyhi_out_6, nzhi_out_6);
-    
+    // particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6, nupper_6, nlower_6,
+    //              nxlo_out_6, nylo_out_6, nzlo_out_6, nxhi_out_6, nyhi_out_6, nzhi_out_6);
+
+    particle_map<6,float,double>(fix->get_mixed_buffers());
     make_rho_a();
 
     cg_6->reverse_comm(this, REVERSE_RHO_A);
@@ -732,4 +738,248 @@ void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
   #ifdef HPAC_TIMING
   printf("fft time %g\n", p3mtime_fft);
   #endif
+}
+
+
+template<const int ORDER, class flt_t, class acc_t>
+void PPPMIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
+{
+
+  ATOM_T * _noalias const x = buffers->get_x(0);
+  int nlocal = atom->nlocal;
+  int nthr = comm->nthreads;
+  int flag = 0;
+
+  if (!ISFINITE(boxlo[0]) || !ISFINITE(boxlo[1]) || !ISFINITE(boxlo[2]))
+    error->one(FLERR,"Non-numeric box dimensions - simulation unstable");
+
+  const flt_t lo0 = boxlo[0];
+  const flt_t lo1 = boxlo[1];
+  const flt_t lo2 = boxlo[2];
+  if (ORDER == 1){ // particle_map_c (delxinv, ... )
+    const flt_t xi = delxinv;
+    const flt_t yi = delyinv;
+    const flt_t zi = delzinv;
+    const flt_t fshift = shift;
+    const int nxlo_out0 = nxlo_out;
+    const int nylo_out0 = nylo_out;
+    const int nzlo_out0 = nzlo_out;
+    const int nxhi_out0 = nxhi_out;
+    const int nyhi_out0 = nyhi_out;
+    const int nzhi_out0 = nzhi_out;
+    const int nupper0 = nupper;
+    const int nlower0 = nlower;
+  }
+  else if(ORDER == 6){ // partical_map (delxinv_6, ...)
+    const flt_t xi = delxinv_6;
+    const flt_t yi = delyinv_6;
+    const flt_t zi = delzinv_6;
+    const flt_t fshift = shift_6;    
+    const int nxlo_out0 = nxlo_out_6;
+    const int nylo_out0 = nylo_out_6;
+    const int nzlo_out0 = nzlo_out_6;
+    const int nxhi_out0 = nxhi_out_6;
+    const int nyhi_out0 = nyhi_out_6;
+    const int nzhi_out0 = nzhi_out_6;
+    const int nupper0 = nupper_6;
+    const int nlower0 = nlower_6;
+  }
+
+
+#if defined(_OPENMP)
+#pragma omp parallel default(none) \
+  shared(nlocal, nthr) \
+  reduction(+:flag) 
+#endif
+  {
+    int iifrom=0, iito=nlocal, tid=0;
+    IP_PRE_omp_range_id(iifrom, iito, tid, nlocal, nthr);
+  #if defined(LMP_SIMD_COMPILER)
+  #pragma vector aligned
+  #pragma simd reduction(+:flag)
+  #endif
+  for (int i = iifrom; i < iito; i++) {
+
+    // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
+    // current particle coord can be outside global and local box
+    // add/subtract OFFSET to avoid int(-0.75) = 0 when want it to be -1
+
+    int nx = static_cast<int> ((x[i].x-lo0)*xi+fshift) - OFFSET;
+    int ny = static_cast<int> ((x[i].y-lo1)*yi+fshift) - OFFSET;
+    int nz = static_cast<int> ((x[i].z-lo2)*zi+fshift) - OFFSET;
+
+    part2grid[i][0] = nx;
+    part2grid[i][1] = ny;
+    part2grid[i][2] = nz;
+
+    // check that entire stencil around nx,ny,nz will fit in my 3d brick
+    if (nx+nlower0 < nxlo_out0 || nx+nupper0 > nxhi_out0 ||
+        ny+nlower0 < nylo_out0 || ny+nupper0 > nyhi_out0 ||
+        nz+nlower0 < nzlo_out0 || nz+nupper0 > nzhi_out0)
+      flag = 1;
+  }
+  }
+  if (flag) error->one(FLERR,"Out of range atoms - cannot compute PPPM");
+
+}
+
+
+template<const int ORDER, class flt_t, class acc_t>
+void PPPMIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
+{
+
+
+
+  int nthr = comm->nthreads;
+
+  const flt_t lo0 = boxlo[0];
+  const flt_t lo1 = boxlo[1];
+  const flt_t lo2 = boxlo[2];
+  if (ORDER == 1){
+    const int fngrid = ngrid;
+    const flt_t xi = delxinv;
+    const flt_t yi = delyinv;
+    const flt_t zi = delzinv;
+    const flt_t fshift = shift;
+    const flt_t fshiftone = shiftone;
+    const flt_t fdelvolinv = delvolinv;
+    const int fnxlo_out = nxlo_out;
+    const int fnylo_out = nylo_out;
+    const int fnzlo_out = nzlo_out;
+    const int fnxhi_out = nxhi_out;
+    const int fnyhi_out = nyhi_out;
+    const int fnzhi_out = nzhi_out;
+    const int fnupper = nupper;
+    const int fnlower = nlower;
+    FFT_SCALAR *** fdbrick = density_brick;
+    FFT_SCALAR ** frho_coeff = rho_coeff;
+    cost int forder = order;
+  } else if (ORDER == 6) {
+    const flt_t fngrid = ngrid_6;
+    const flt_t xi = delxinv_6;
+    const flt_t yi = delyinv_6;
+    const flt_t zi = delzinv_6;
+    const flt_t fshift = shift_6;    
+    const flt_t fshiftone = shiftone_6;
+    const flt_t fdelvolinv = delvolinv_6;
+    const int fnxlo_out = nxlo_out_6;
+    const int fnylo_out = nylo_out_6;
+    const int fnzlo_out = nzlo_out_6;
+    const int fnxhi_out = nxhi_out_6;
+    const int fnyhi_out = nyhi_out_6;
+    const int fnzhi_out = nzhi_out_6;
+    const int fnupper = nupper_6;
+    const int fnlower = nlower_6;
+    FFT_SCALAR *** fdbrick = density_brick_g;
+    FFT_SCALAR ** frho_coeff = rho_coeff_6;
+    cost int forder = order_6;
+  }
+
+  FFT_SCALAR * _noalias const densityThr =
+    &(fdbrick[fnzlo_out][fnylo_out][fnxlo_out]);
+
+
+  // clear 3d density array     
+  memset(densityThr, 0, ngrid*sizeof(FFT_SCALAR));
+
+
+  //icc 16.0 does not support OpenMP 4.5 and so doesn't support
+  //array reduction.  This sets up private arrays in order to
+  //do the reduction manually.
+
+  FFT_SCALAR localDensity[comm->nthreads * ngrid];
+  memset(localDensity, 0.,comm->nthreads*ngrid*sizeof(FFT_SCALAR));
+
+  // loop over my charges, add their contribution to nearby grid points
+  // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
+  // (dx,dy,dz) = distance to "lower left" grid pt
+  // (mx,my,mz) = global coords of moving stencil pt
+
+  ATOM_T * _noalias const x = buffers->get_x(0);
+  flt_t * _noalias const q = buffers->get_q(0);
+  int nlocal = atom->nlocal;
+
+
+  const int nix = fnxhi_out - fnxlo_out + 1;
+  const int niy = fnyhi_out - fnylo_out + 1;
+  
+
+  //Parallelize over the atoms
+  #if defined(_OPENMP)
+  #pragma omp parallel default(none) \
+    shared(nthr, nlocal, localDensity)
+  #endif
+  {
+    int jfrom, jto, tid;
+    IP_PRE_omp_range_id(jfrom, jto, tid, nlocal, nthr);
+
+
+    #if defined(LMP_SIMD_COMPILER)
+    //#pragma vector aligned nontemporal
+      #pragma simd
+      #endif   
+  for (int i = jfrom; i < jto; i++) {
+
+    int nx = part2grid[i][0];
+    int ny = part2grid[i][1];
+    int nz = part2grid[i][2];
+    FFT_SCALAR dx = nx+fshiftone - (x[i].x-lo0)*xi;
+    FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
+    FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo2)*zi;
+
+
+    flt_t rho[3][INTEL_P3M_MAXORDER];
+
+    for (int k = fnlower; k <= fnupper; k++) {
+      FFT_SCALAR r1,r2,r3;
+      r1 = r2 = r3 = ZEROF;
+
+      for (int l = forder-1; l >= 0; l--) {
+        r1 = frho_coeff[l][k] + r1*dx;
+        r2 = frho_coeff[l][k] + r2*dy;
+        r3 = frho_coeff[l][k] + r3*dz;
+      }
+      rho[0][k-nlower] = r1;
+      rho[1][k-nlower] = r2;
+      rho[2][k-nlower] = r3;
+    }
+
+    FFT_SCALAR z0 = fdelvolinv * q[i];
+
+    for (int n = fnlower; n <= fnupper; n++) {
+      int mz = (n + nz - fnzlo_out)*nix*niy;
+      FFT_SCALAR y0 = z0*rho[2][n-fnlower];
+      for (int m = fnlower; m <= fnupper; m++) {
+        int mzy = mz + (m + ny - fnylo_out)*nix;
+        FFT_SCALAR x0 = y0*rho[1][m-fnlower];
+        for (int l = fnlower; l <= fnupper; l++) {
+          int mzyx = mzy + l + nx - fnxlo_out;
+          //localDensity[mzyx*nthr + tid] += x0*rho[0][l-fnlower];
+          localDensity[mzyx + ngrid*tid] += x0*rho[0][l-fnlower];
+        }
+      }
+    }
+  }
+  }
+
+  //do the reduction
+  #if defined(_OPENMP)
+  #pragma omp parallel default(none) \
+    shared(nthr, nlocal, localDensity)
+  #endif
+  {
+    int jfrom, jto, tid;
+    IP_PRE_omp_range_id(jfrom, jto, tid, ngrid, nthr);
+
+    #if defined(LMP_SIMD_COMPILER)
+    //#pragma vector aligned nontemporal
+      #pragma simd
+      #endif
+  for (int i = jfrom; i < jto; i++) {
+    for(int j = 0; j < nthr; j++) {
+      densityThr[i] += localDensity[i + j*ngrid];
+    }
+  }
+  }
+
 }
