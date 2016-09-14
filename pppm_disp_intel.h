@@ -45,25 +45,11 @@ class PPPMDispIntel : public PPPMDisp {
   int _use_base;
   #endif
 
-  void poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
-                  FFT_SCALAR* dfft, LAMMPS_NS::FFT3d* ft1,LAMMPS_NS::FFT3d* ft2,
-                  int nx_p, int ny_p, int nz_p, int nft,
-                  int nxlo_ft, int nylo_ft, int nzlo_ft,
-                  int nxhi_ft, int nyhi_ft, int nzhi_ft,
-                  int nxlo_i, int nylo_i, int nzlo_i,
-                  int nxhi_i, int nyhi_i, int nzhi_i,
-                  double& egy, double* gfn,
-                  double* kx, double* ky, double* kz,
-                  double* kx2, double* ky2, double* kz2,
-                  FFT_SCALAR*** vx_brick, FFT_SCALAR*** vy_brick, FFT_SCALAR*** vz_brick,
-                  double* vir, double** vcoeff, double** vcoeff2,
-                  FFT_SCALAR*** u_pa, FFT_SCALAR*** v0_pa, FFT_SCALAR*** v1_pa, FFT_SCALAR*** v2_pa,
-                  FFT_SCALAR*** v3_pa, FFT_SCALAR*** v4_pa, FFT_SCALAR*** v5_pa);
+  template<const char VARIANT, class flt_t, class acc_t>
+  void particle_map(IntelBuffers<flt_t,acc_t> *buffers);
+  // template<const char VARIANT, class flt_t, class acc_t>
+  // void make_rho(IntelBuffers<flt_t,acc_t> *buffers);
   // template<class flt_t, class acc_t>
-  // void particle_map(IntelBuffers<flt_t,acc_t> *buffers);
-  // template<class flt_t, class acc_t>
-  void make_rho(IntelBuffers<flt_t,acc_t> *buffers);
-  template<class flt_t, class acc_t>
   // void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers);
   // template<class flt_t, class acc_t>
   // void fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers);
