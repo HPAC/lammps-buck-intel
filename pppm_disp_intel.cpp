@@ -217,7 +217,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
       cg->forward_comm(this, FORWARD_IK);
 
-      fieldforce_c_ik();
+      //fieldforce_c_ik();
+      fieldforce_ik<'c',double, double>(fix->get_double_buffers());
 
       if (evflag_atom) cg_peratom->forward_comm(this, FORWARD_IK_PERATOM);
     }
@@ -316,7 +317,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     else p3mtime_fieldforce = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
     #endif
 
-    fieldforce_g_ik();
+    //fieldforce_g_ik();
+    fieldforce_ik<'g',double, double>(fix->get_double_buffers());
 
     #ifdef HPAC_TIMING
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
@@ -545,199 +547,6 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   #endif
 }
 
-
-/* ----------------------------------------------------------------------
-   FFT-based Poisson solver for ik differentiation
-------------------------------------------------------------------------- */
-
-// void PPPMDispIntel::poisson_ik(FFT_SCALAR* wk1, FFT_SCALAR* wk2,
-//                            FFT_SCALAR* dfft, LAMMPS_NS::FFT3d* ft1,LAMMPS_NS::FFT3d* ft2,
-//                            int nx_p, int ny_p, int nz_p, int nft,
-//                            int nxlo_ft, int nylo_ft, int nzlo_ft,
-//                            int nxhi_ft, int nyhi_ft, int nzhi_ft,
-//                            int nxlo_i, int nylo_i, int nzlo_i,
-//                            int nxhi_i, int nyhi_i, int nzhi_i,
-//                            double& egy, double* gfn,
-//                            double* kx, double* ky, double* kz,
-//                            double* kx2, double* ky2, double* kz2,
-//                            FFT_SCALAR*** vx_brick, FFT_SCALAR*** vy_brick, FFT_SCALAR*** vz_brick,
-//                            double* vir, double** vcoeff, double** vcoeff2,
-//                            FFT_SCALAR*** u_pa, FFT_SCALAR*** v0_pa, FFT_SCALAR*** v1_pa, FFT_SCALAR*** v2_pa,
-//                            FFT_SCALAR*** v3_pa, FFT_SCALAR*** v4_pa, FFT_SCALAR*** v5_pa)
-// {
-//   #ifdef HPAC_TIMING
-//   double p3mtime, p3mtime_fft = 0.;
-//   struct timespec tv;
-//   #endif
-
-//   int i,j,k,n;
-//   double eng;
-
-//   // transform charge/dispersion density (r -> k)
-//   n = 0;
-//   for (i = 0; i < nft; i++) {
-//     wk1[n++] = dfft[i];
-//     wk1[n++] = ZEROF;
-//   }
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-//   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-//   #endif
-
-//   ft1->compute(wk1,wk1,1);
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
-//   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
-//   #endif
-
-
-//   // if requested, compute energy and virial contribution
-
-//   double scaleinv = 1.0/(nx_p*ny_p*nz_p);
-//   double s2 = scaleinv*scaleinv;
-
-//   if (eflag_global || vflag_global) {
-//     if (vflag_global) {
-//       n = 0;
-//       for (i = 0; i < nft; i++) {
-// 	eng = s2 * gfn[i] * (wk1[n]*wk1[n] + wk1[n+1]*wk1[n+1]);
-// 	for (j = 0; j < 6; j++) vir[j] += eng*vcoeff[i][j];
-// 	if (eflag_global) egy += eng;
-// 	n += 2;
-//       }
-//     } else {
-//       n = 0;
-//       for (i = 0; i < nft; i++) {
-// 	egy +=
-// 	  s2 * gfn[i] * (wk1[n]*wk1[n] + wk1[n+1]*wk1[n+1]);
-// 	n += 2;
-//       }
-//     }
-//   }
-
-//   // scale by 1/total-grid-pts to get rho(k)
-//   // multiply by Green's function to get V(k)
-
-//   n = 0;
-//   for (i = 0; i < nft; i++) {
-//     wk1[n++] *= scaleinv * gfn[i];
-//     wk1[n++] *= scaleinv * gfn[i];
-//   }
-
-//   // compute gradients of V(r) in each of 3 dims by transformimg -ik*V(k)
-//   // FFT leaves data in 3d brick decomposition
-//   // copy it into inner portion of vdx,vdy,vdz arrays
-
-//   // x & y direction gradient
-
-//   n = 0;
-//   for (k = nzlo_ft; k <= nzhi_ft; k++)
-//     for (j = nylo_ft; j <= nyhi_ft; j++)
-//       for (i = nxlo_ft; i <= nxhi_ft; i++) {
-// 	wk2[n] = 0.5*(kx[i]-kx2[i])*wk1[n+1] + 0.5*(ky[j]-ky2[j])*wk1[n];
-// 	wk2[n+1] = -0.5*(kx[i]-kx2[i])*wk1[n] + 0.5*(ky[j]-ky2[j])*wk1[n+1];
-// 	n += 2;
-//       }
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-//   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-//   #endif
-
-//   ft2->compute(wk2,wk2,-1);
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
-//   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
-//   #endif
-
-//   n = 0;
-//   for (k = nzlo_i; k <= nzhi_i; k++)
-//     for (j = nylo_i; j <= nyhi_i; j++)
-//       for (i = nxlo_i; i <= nxhi_i; i++) {
-// 	vx_brick[k][j][i] = wk2[n++];
-// 	vy_brick[k][j][i] = wk2[n++];
-//       }
-
-//   if (!eflag_atom) {
-//     // z direction gradient only
-
-//     n = 0;
-//     for (k = nzlo_ft; k <= nzhi_ft; k++)
-//       for (j = nylo_ft; j <= nyhi_ft; j++)
-//         for (i = nxlo_ft; i <= nxhi_ft; i++) {
-// 	  wk2[n] = kz[k]*wk1[n+1];
-// 	  wk2[n+1] = -kz[k]*wk1[n];
-// 	  n += 2;
-//         }
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-//   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-//   #endif
-
-//     ft2->compute(wk2,wk2,-1);
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
-//   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
-//   #endif
-
-//     n = 0;
-//     for (k = nzlo_i; k <= nzhi_i; k++)
-//       for (j = nylo_i; j <= nyhi_i; j++)
-//         for (i = nxlo_i; i <= nxhi_i; i++) {
-// 	  vz_brick[k][j][i] = wk2[n];
-// 	  n += 2;
-//         }
-
-//   }
-
-//   else {
-//     // z direction gradient & per-atom energy
-
-//     n = 0;
-//     for (k = nzlo_ft; k <= nzhi_ft; k++)
-//       for (j = nylo_ft; j <= nyhi_ft; j++)
-//         for (i = nxlo_ft; i <= nxhi_ft; i++) {
-// 	  wk2[n] = 0.5*(kz[k]-kz2[k])*wk1[n+1] - wk1[n+1];
-// 	  wk2[n+1] = -0.5*(kz[k]-kz2[k])*wk1[n] + wk1[n];
-// 	  n += 2;
-//         }
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-//   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-//   #endif
-
-//     ft2->compute(wk2,wk2,-1);
-
-//   #ifdef HPAC_TIMING
-//   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
-//   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
-//   #endif
-
-
-//     n = 0;
-//     for (k = nzlo_i; k <= nzhi_i; k++)
-//       for (j = nylo_i; j <= nyhi_i; j++)
-//         for (i = nxlo_i; i <= nxhi_i; i++) {
-// 	  vz_brick[k][j][i] = wk2[n++];
-// 	  u_pa[k][j][i] = wk2[n++];;
-//         }
-//   }
-
-//   if (vflag_atom) poisson_peratom(wk1, wk2, ft2, vcoeff, vcoeff2, nft,
-//                                   nxlo_i, nylo_i, nzlo_i, nxhi_i, nyhi_i, nzhi_i,
-//                                   v0_pa, v1_pa, v2_pa, v3_pa, v4_pa, v5_pa);
-
-//   #ifdef HPAC_TIMING
-//   printf("fft time %g\n", p3mtime_fft);
-//   #endif
-// }
-
-
 template<const char VARIANT, class flt_t, class acc_t>
 void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 {
@@ -746,55 +555,31 @@ void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
   if (!ISFINITE(boxlo[0]) || !ISFINITE(boxlo[1]) || !ISFINITE(boxlo[2]))
     error->one(FLERR,"Non-numeric box dimensions - simulation unstable");
 
-  const flt_t xi = 0.0;
-  const flt_t yi = 0.0;
-  const flt_t zi = 0.0;
-  const flt_t fshift = 0.0;
-  const int nxlo = 0;
-  const int nylo = 0;
-  const int nzlo = 0;
-  const int nxhi = 0;
-  const int nyhi = 0;
-  const int nzhi = 0;
-  const int nup = 0;
-  const int nlow = 0;
-  int ** const p2g = NULL;
+    // particle_map_c (delxinv, ... )
+    // particle_map (delxinv_6, ...)
+  #define SWITCHVAR(_c, _g ) VARIANT == 'c' ? _c : _g
+
+
+
+  const flt_t xi = SWITCHVAR(delxinv, delxinv_6);
+  const flt_t yi = SWITCHVAR(delyinv, delyinv_6);
+  const flt_t zi = SWITCHVAR(delzinv, delzinv_6);
+  const flt_t fshift = SWITCHVAR(shift, shift_6);
+  const int nxlo = SWITCHVAR(nxlo_out, nxlo_out_6);
+  const int nylo = SWITCHVAR(nylo_out, nylo_out_6);
+  const int nzlo = SWITCHVAR(nzlo_out, nzlo_out_6);
+  const int nxhi = SWITCHVAR(nxhi_out, nxhi_out_6);
+  const int nyhi = SWITCHVAR(nyhi_out, nyhi_out_6);
+  const int nzhi = SWITCHVAR(nzhi_out, nzhi_out_6);
+  const int nup = SWITCHVAR(nupper, nupper_6);
+  const int nlow = SWITCHVAR(nlower, nlower_6);
+  int ** const p2g = SWITCHVAR(part2grid, part2grid_6);
+
+  #undef SWITCHVAR
 
   const flt_t lo0 = boxlo[0];
   const flt_t lo1 = boxlo[1];
   const flt_t lo2 = boxlo[2];
-  if (VARIANT == 'c'){ // particle_map_c (delxinv, ... )
-    const flt_t xi = delxinv;
-    const flt_t yi = delyinv;
-    const flt_t zi = delzinv;
-    const flt_t fshift = shift;
-    const int nxlo = nxlo_out;
-    const int nylo = nylo_out;
-    const int nzlo = nzlo_out;
-    const int nxhi = nxhi_out;
-    const int nyhi = nyhi_out;
-    const int nzhi = nzhi_out;
-    const int nup = nupper;
-    const int nlow = nlower;
-    int ** const p2g = part2grid;
-  }
-  else if(VARIANT == 'g'){ // particle_map (delxinv_6, ...)
-    const flt_t xi = delxinv_6;
-    const flt_t yi = delyinv_6;
-    const flt_t zi = delzinv_6;
-    const flt_t fshift = shift_6;
-    const int nxlo = nxlo_out_6;
-    const int nylo = nylo_out_6;
-    const int nzlo = nzlo_out_6;
-    const int nxhi = nxhi_out_6;
-    const int nyhi = nyhi_out_6;
-    const int nzhi = nzhi_out_6;
-    const int nup = nupper_6;
-    const int nlow = nlower_6;
-    int ** const p2g = part2grid_6;
-  } else {
-    error->one(FLERR, "particle map not defined for this configuration");
-  }
 
   ATOM_T * _noalias const x = buffers->get_x(0);
   int nlocal = atom->nlocal;
@@ -851,16 +636,17 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   const flt_t zi = SWITCHVAR(delzinv, delzinv_6);
   const flt_t fshiftone = SWITCHVAR(shiftone, shiftone_6);
   const flt_t fdelvolinv = SWITCHVAR(delvolinv, delvolinv_6);
-  const int fnxlo_out = SWITCHVAR(nxlo_out, nxlo_out_6);
-  const int fnylo_out = SWITCHVAR(nylo_out, nylo_out_6);
-  const int fnzlo_out = SWITCHVAR(nzlo_out, nzlo_out_6);
-  const int fnxhi_out = SWITCHVAR(nxhi_out, nxhi_out_6);
-  const int fnyhi_out = SWITCHVAR(nyhi_out, nyhi_out_6);
-  const int fnzhi_out = SWITCHVAR(nzhi_out, nzhi_out_6);
-  const int fnupper = SWITCHVAR(nupper, nupper_6);
-  const int fnlower = SWITCHVAR(nlower, nlower_6);
+  const int nxlo = SWITCHVAR(nxlo_out, nxlo_out_6);
+  const int nylo = SWITCHVAR(nylo_out, nylo_out_6);
+  const int nzlo = SWITCHVAR(nzlo_out, nzlo_out_6);
+  const int nxhi = SWITCHVAR(nxhi_out, nxhi_out_6);
+  const int nyhi = SWITCHVAR(nyhi_out, nyhi_out_6);
+  const int nzhi = SWITCHVAR(nzhi_out, nzhi_out_6);
+  const int nup = SWITCHVAR(nupper, nupper_6);
+  const int nlow = SWITCHVAR(nlower, nlower_6);
   FFT_SCALAR *** fdbrick = SWITCHVAR(density_brick, density_brick_g);
   FFT_SCALAR ** const frho_coeff = SWITCHVAR(rho_coeff, rho_coeff_6);
+  int ** const p2g = SWITCHVAR(part2grid, part2grid_6);
   const int forder = SWITCHVAR(order, order_6);
 
   #undef SWITCHVAR
@@ -873,7 +659,7 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 
 
   FFT_SCALAR * _noalias const densityThr =
-    &(fdbrick[fnzlo_out][fnylo_out][fnxlo_out]);
+    &(fdbrick[nzlo][nylo][nxlo]);
 
   // clear 3d density array
   memset(densityThr, 0.0, fngrid*sizeof(FFT_SCALAR));
@@ -896,10 +682,10 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   int nlocal = atom->nlocal;
 
 
-  const int nix = fnxhi_out - fnxlo_out + 1;
-  const int niy = fnyhi_out - fnylo_out + 1;
-  const int nsize = fnupper - fnlower;
-  const int tripcount = fnupper = fnlower +1;
+  const int nix = nxhi - nxlo + 1;
+  const int niy = nyhi - nylo + 1;
+  const int nsize = nup - nlow;
+  const int tripcount = nup = nlow +1;
 
 
 
@@ -917,13 +703,13 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 
     for (int i = jfrom; i < jto; ++i) {
 
-      int nx = part2grid[i][0];
-      int ny = part2grid[i][1];
-      int nz = part2grid[i][2];
+      int nx = p2g[i][0];
+      int ny = p2g[i][1];
+      int nz = p2g[i][2];
 
-      int nysum = fnlower + ny - nylo_out;
-      int nxsum = fnlower + nx - nxlo_out + fngrid*tid;
-      int nzsum = (fnlower + nz - nzlo_out) * nix * niy + nysum*nix + nxsum;
+      int nysum = nlow + ny - nylo;
+      int nxsum = nlow + nx - nxlo + fngrid*tid;
+      int nzsum = (nlow + nz - nzlo) * nix * niy + nysum*nix + nxsum;
 
       FFT_SCALAR dx = nx+fshiftone - (x[i].x-lo0)*xi;
       FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
@@ -933,7 +719,7 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
       #if defined(LMP_SIMD_COMPILER)
       #pragma simd
       #endif
-      for (int k = fnlower; k <= fnupper; k++) {
+      for (int k = nlow; k <= nup; k++) {
         FFT_SCALAR r1,r2,r3;
         r1 = r2 = r3 = ZEROF;
 
@@ -942,9 +728,9 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
           r2 = frho_coeff[l][k] + r2*dy;
           r3 = frho_coeff[l][k] + r3*dz;
         }
-        rho[0][k-nlower] = r1;
-        rho[1][k-nlower] = r2;
-        rho[2][k-nlower] = r3;
+        rho[0][k-nlow] = r1;
+        rho[1][k-nlow] = r2;
+        rho[2][k-nlow] = r3;
       }
 
       FFT_SCALAR z0 = fdelvolinv * q[i];
@@ -976,7 +762,7 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   #endif
   {
     int jfrom, jto, tid;
-    IP_PRE_omp_range_id(jfrom, jto, tid, ngrid, nthr);
+    IP_PRE_omp_range_id(jfrom, jto, tid, fngrid, nthr);
 
     #if defined(LMP_SIMD_COMPILER)
     //#pragma vector aligned nontemporal
@@ -988,5 +774,159 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     }
   }
   }
+
+}
+
+template<const char VARIANT, class flt_t, class acc_t>
+void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers) {
+
+  ATOM_T * _noalias const x = buffers->get_x(0);
+  flt_t * _noalias const q = buffers->get_q(0);
+  FORCE_T * _noalias const f = buffers->get_f();
+
+
+  int nlocal = atom->nlocal;
+  int nthr = comm->nthreads;
+
+  const flt_t lo0 = boxlo[0];
+  const flt_t lo1 = boxlo[1];
+  const flt_t lo2 = boxlo[2];
+
+  #define SWITCHVAR(_c, _g ) VARIANT == 'c' ? _c : _g
+
+  const flt_t xi = SWITCHVAR(delxinv, delxinv_6);
+  const flt_t yi = SWITCHVAR(delyinv, delyxinv_6);
+  const flt_t zi = SWITCHVAR(delzinv, delzinv_6);
+  const flt_t fshift = SWITCHVAR(shift, shift_6);
+  const flt_t fshiftone = SWITCHVAR(shiftone, shiftone_6);
+  const int nxlo = SWITCHVAR(nxlo_out, nxlo_out_6);
+  const int nylo = SWITCHVAR(nylo_out, nylo_out_6);
+  const int nzlo = SWITCHVAR(nzlo_out, nzlo_out_6);
+  const int nxhi = SWITCHVAR(nxhi_out, nxhi_out_6);
+  const int nyhi = SWITCHVAR(nyhi_out, nyhi_out_6);
+  const int nzhi = SWITCHVAR(nzhi_out, nzhi_out_6);
+  const int nup = SWITCHVAR(nupper, nupper_6);
+  const int nlow = SWITCHVAR(nlower, nlower_6);
+  FFT_SCALAR ** const frho_coeff = SWITCHVAR(rho_coeff, rho_coeff_6);
+  FFT_SCALAR *** const fvdx_brick = SWITCHVAR(vdx_brick, vdx_brick_g);
+  FFT_SCALAR *** const fvdy_brick = SWITCHVAR(vdy_brick, vdy_brick_g);
+  FFT_SCALAR *** const fvdz_brick = SWITCHVAR(vdz_brick, vdz_brick_g);
+
+  #undef SWITCHVAR
+  const flt_t fqqrd2es = qqrd2e * scale;
+  const int tripcount = nup - nlow + 1;
+
+  int niz = nzhi - nzlo + 1;
+  int niy = nyhi - nylo + 1;
+  int nix = nxhi - nxlo + 1;
+
+  FFT_SCALAR vdxy_brick[2*niz*niy*nix+16]; //have to allocate for worst case where the particle is in a corner
+  FFT_SCALAR vdz0_brick[2*niz*niy*nix+16];
+  #if defined(LMP_SIMD_COMPILER)
+    #pragma vector
+    #pragma simd
+  #endif
+  for (int iz = 0; iz < niz; ++iz) {
+    for (int iy = 0; iy < niy; ++iy) {
+      for ( int ix = 0; ix < nix; ++ix) {
+      int iter = 2*(iz*niy*nix + iy*nix + ix);
+        vdxy_brick[iter] = fvdx_brick[nzlo + iz][nylo + iy][nxlo + ix];
+        vdxy_brick[iter+1] = fvdy_brick[nzlo + iz][nylo + iy][nxlo + ix];
+        vdz0_brick[iter] = fvdz_brick[nzlo + iz][nylo + iy][nxlo + ix];
+        vdz0_brick[iter+1] = 0.;
+      }
+    }
+  }
+
+  #if defined(_OPENMP)
+    #pragma omp parallel default(none) \
+    shared(nlocal, nthr, nix, niy, niz, vdxy_brick, vdz0_brick)
+  #endif
+  { // Begin Parallel region
+    int iifrom=0, iito=nlocal, tid=0;
+    FFT_SCALAR rho0[16] = {0.0};
+    FFT_SCALAR rho1[8];
+    FFT_SCALAR rho2[8];
+
+    IP_PRE_omp_range_id(iifrom, iito, tid, nlocal, nthr);
+
+    for (int i = iifrom; i < iito; i++) {
+      int nx = p2g[i][0];
+      int ny = p2g[i][1];
+      int nz = p2g[i][2];
+
+      int nxsum = nx - nxlo + nlow;
+      int nysum = ny - nylo + nlow;
+      int nzsum = 2*((nz - nzlo + nlow )*nix*niy + nysum*nix + nxsum);
+      FFT_SCALAR dx = nx + fshiftone - (x[i].x-lo0)*xi;
+      FFT_SCALAR dy = ny + fshiftone - (x[i].y-lo1)*yi;
+      FFT_SCALAR dz = nz + fshiftone - (x[i].z-lo2)*zi;
+
+      #pragma simd
+      for (int k = nlow; k <= nup; k++) {
+        FFT_SCALAR r1, r2, r3;
+        r1 = r2 = r3 = ZEROF;
+        for (int l = order-1; l >= 0; l--) {
+          r1 = frho_coeff[l][k] + r1*dx;
+          r2 = frho_coeff[l][k] + r2*dy;
+          r3 = frho_coeff[l][k] + r3*dz;
+        }
+      int rho_iter = 2*(k - nlower);
+      rho0[rho_iter] = r1;
+      rho0[rho_iter+1] = r1;
+      rho1[k-nlower] = r2;
+      rho2[k-nlower] = r3;
+    }
+
+
+    FFT_SCALAR ekxy[16]={ZEROF};
+    FFT_SCALAR ekz0[16]={ZEROF};
+    FFT_SCALAR ekxsum, ekysum, ekzsum;
+    ekxsum = ekysum = ekzsum = ZEROF;
+    for (int n = 0; n < tripcount; n++) {
+      int mz = 2*n*nix*niy+nzsum;
+      FFT_SCALAR z0 = rho2[n];
+
+      for (int m = 0; m < tripcount; m++) {
+        int mzy = mz + 2*m*nix;
+        FFT_SCALAR y0 = z0*rho1[m];
+        #pragma simd
+        for (int l = 0; l < 16; l++) {
+          FFT_SCALAR x0 = y0*rho0[l];
+          ekxy[l] -= x0*vdxy_brick[mzy+l];
+          ekz0[l] -= x0*vdz0_brick[mzy+l];
+        }
+      }
+    }
+
+
+    for (int l = 0; l < 16; l=l+2){
+    	ekxsum += ekxy[l];
+    	ekysum += ekxy[l+1];
+    	ekzsum += ekz0[l];
+    }
+
+    // convert E-field to force
+
+
+
+    flt_t ffactor;
+    if (VARIANT == 'c'){
+      ffactor =  fqqrd2es * q[i];
+    }
+    if (VARIANT == 'g'){
+      const int type = atom->type[i];
+      ffactor = B[type];
+    }
+    f[i].x += ffactor*ekxsum;
+    f[i].y += ffactor*ekysum;
+    if (slabflag != 2) f[i].z += qfactor*ekzsum;
+  } // End loop over atoms
+
+} // End Parallel region
+}
+
+template<const char VARIANT, class flt_t, class acc_t>
+void fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers){
 
 }
