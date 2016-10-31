@@ -180,9 +180,9 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     // particle_map_c(delxinv, delyinv, delzinv, shift, part2grid, nupper, nlower,
     //              nxlo_out, nylo_out, nzlo_out, nxhi_out, nyhi_out, nzhi_out);
     particle_map<'c', double, double>(fix->get_double_buffers());
-    make_rho_c();    
-    
-    // make_rho<'c', double, double>(fix->get_double_buffers());
+    //make_rho_c();
+
+    make_rho<'c', double, double>(fix->get_double_buffers());
 
     cg->reverse_comm(this,REVERSE_RHO);
 
@@ -236,7 +236,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     // 		 nupper_6, nlower_6, nxlo_out_6, nylo_out_6, nzlo_out_6,
     // 		 nxhi_out_6, nyhi_out_6, nzhi_out_6);
 
-    particle_map<'g', double, double>(fix->get_double_buffers());  
+    particle_map<'g', double, double>(fix->get_double_buffers());
 
     #ifdef HPAC_TIMING
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
@@ -245,8 +245,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     p3mtime_makerho = p3mtime;
     #endif
 
-    make_rho_g();
-    //make_rho<'g', double, double>(fix->get_double_buffers());
+    //make_rho_g();
+    make_rho<'g', double, double>(fix->get_double_buffers());
 
     #ifdef HPAC_TIMING
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
@@ -292,8 +292,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_poisson = 0;
     else p3mtime_poisson = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
     #endif
-      
-    
+
+
     poisson_ik(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
                nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
                nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
@@ -317,7 +317,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     #endif
 
     fieldforce_g_ik();
-    
+
     #ifdef HPAC_TIMING
     if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
     else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
@@ -410,7 +410,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     // particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6,
     //              nupper_6, nlower_6, nxlo_out_6, nylo_out_6, nzlo_out_6,
     //              nxhi_out_6, nyhi_out_6, nzhi_out_6);
-    
+
     particle_map<'g', double, double>(fix->get_double_buffers());
     make_rho_none();
 
@@ -644,9 +644,9 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 //   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
 //   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
 //   #endif
-  
+
 //   ft2->compute(wk2,wk2,-1);
-  
+
 //   #ifdef HPAC_TIMING
 //   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fft += 0;
 //   else p3mtime_fft += ((tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.)) - p3mtime;
@@ -671,7 +671,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 // 	  wk2[n+1] = -kz[k]*wk1[n];
 // 	  n += 2;
 //         }
-  
+
 //   #ifdef HPAC_TIMING
 //   if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
 //   else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
@@ -745,7 +745,7 @@ void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 
   if (!ISFINITE(boxlo[0]) || !ISFINITE(boxlo[1]) || !ISFINITE(boxlo[2]))
     error->one(FLERR,"Non-numeric box dimensions - simulation unstable");
-  
+
   const flt_t xi = 0.0;
   const flt_t yi = 0.0;
   const flt_t zi = 0.0;
@@ -782,7 +782,7 @@ void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
     const flt_t xi = delxinv_6;
     const flt_t yi = delyinv_6;
     const flt_t zi = delzinv_6;
-    const flt_t fshift = shift_6;    
+    const flt_t fshift = shift_6;
     const int nxlo = nxlo_out_6;
     const int nylo = nylo_out_6;
     const int nzlo = nzlo_out_6;
@@ -792,8 +792,10 @@ void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
     const int nup = nupper_6;
     const int nlow = nlower_6;
     int ** const p2g = part2grid_6;
+  } else {
+    error->one(FLERR, "particle map not defined for this configuration");
   }
-  
+
   ATOM_T * _noalias const x = buffers->get_x(0);
   int nlocal = atom->nlocal;
   int nthr = comm->nthreads;
@@ -802,7 +804,7 @@ void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 #if defined(_OPENMP)
 #pragma omp parallel default(none) \
   shared(nlocal, nthr) \
-  reduction(+:flag) 
+  reduction(+:flag)
 #endif
   {
     int iifrom=0, iito=nlocal, tid=0;
@@ -837,179 +839,154 @@ void PPPMDispIntel::particle_map(IntelBuffers<flt_t,acc_t> *buffers)
 }
 
 
-// template<const char VARIANT, class flt_t, class acc_t>
-// void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
-// {
-//   int nthr = comm->nthreads;
+template<const char VARIANT, class flt_t, class acc_t>
+void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
+{
+  // A macro to assign the values to the different variants
+  #define SWITCHVAR(_c, _g ) VARIANT == 'c' ? _c : _g
 
-//   const flt_t lo0 = boxlo[0];
-//   const flt_t lo1 = boxlo[1];
-//   const flt_t lo2 = boxlo[2];
-  
-//   const int fngrid = 0;
-//   const flt_t xi = 0.0;
-//   const flt_t yi = 0.0;
-//   const flt_t zi = 0.0;
-//   const flt_t fshift = 0.0;
-//   const flt_t fshiftone = 0.0;
-//   const flt_t fdelvolinv = 0.0;
-//   const int fnxlo_out = 0;
-//   const int fnylo_out = 0;
-//   const int fnzlo_out = 0;
-//   const int fnxhi_out = 0;
-//   const int fnyhi_out = 0;
-//   const int fnzhi_out = 0;
-//   const int fnupper = 0;
-//   const int fnlower = 0;
-//   const int forder = 0;
-//   FFT_SCALAR *** fdbrick, ** const frho_coeff=NULL;
- 
+  const int fngrid = SWITCHVAR(ngrid, ngrid_6);
+  const flt_t xi = SWITCHVAR(delxinv, delxinv_6);
+  const flt_t yi = SWITCHVAR(delyinv, delyinv_6);
+  const flt_t zi = SWITCHVAR(delzinv, delzinv_6);
+  const flt_t fshiftone = SWITCHVAR(shiftone, shiftone_6);
+  const flt_t fdelvolinv = SWITCHVAR(delvolinv, delvolinv_6);
+  const int fnxlo_out = SWITCHVAR(nxlo_out, nxlo_out_6);
+  const int fnylo_out = SWITCHVAR(nylo_out, nylo_out_6);
+  const int fnzlo_out = SWITCHVAR(nzlo_out, nzlo_out_6);
+  const int fnxhi_out = SWITCHVAR(nxhi_out, nxhi_out_6);
+  const int fnyhi_out = SWITCHVAR(nyhi_out, nyhi_out_6);
+  const int fnzhi_out = SWITCHVAR(nzhi_out, nzhi_out_6);
+  const int fnupper = SWITCHVAR(nupper, nupper_6);
+  const int fnlower = SWITCHVAR(nlower, nlower_6);
+  FFT_SCALAR *** fdbrick = SWITCHVAR(density_brick, density_brick_g);
+  FFT_SCALAR ** const frho_coeff = SWITCHVAR(rho_coeff, rho_coeff_6);
+  const int forder = SWITCHVAR(order, order_6);
 
-//   if (VARIANT == 'c'){
-//     const int fngrid = ngrid;
-//     const flt_t xi = delxinv;
-//     const flt_t yi = delyinv;
-//     const flt_t zi = delzinv;
-//     const flt_t fshift = shift;
-//     const flt_t fshiftone = shiftone;
-//     const flt_t fdelvolinv = delvolinv;
-//     const int fnxlo_out = nxlo_out;
-//     const int fnylo_out = nylo_out;
-//     const int fnzlo_out = nzlo_out;
-//     const int fnxhi_out = nxhi_out;
-//     const int fnyhi_out = nyhi_out;
-//     const int fnzhi_out = nzhi_out;
-//     const int fnupper = nupper;
-//     const int fnlower = nlower;
-//     FFT_SCALAR *** fdbrick = density_brick;
-//     FFT_SCALAR ** const frho_coeff = rho_coeff;
-//     const int forder = order;
-//   } else if (VARIANT == 'g') {
-//     const flt_t fngrid = ngrid_6;
-//     const flt_t xi = delxinv_6;
-//     const flt_t yi = delyinv_6;
-//     const flt_t zi = delzinv_6;
-//     const flt_t fshift = shift_6;    
-//     const flt_t fshiftone = shiftone_6;
-//     const flt_t fdelvolinv = delvolinv_6;
-//     const int fnxlo_out = nxlo_out_6;
-//     const int fnylo_out = nylo_out_6;
-//     const int fnzlo_out = nzlo_out_6;
-//     const int fnxhi_out = nxhi_out_6;
-//     const int fnyhi_out = nyhi_out_6;
-//     const int fnzhi_out = nzhi_out_6;
-//     const int fnupper = nupper_6;
-//     const int fnlower = nlower_6;
-//     FFT_SCALAR *** fdbrick = density_brick_g;
-//     FFT_SCALAR ** const frho_coeff = rho_coeff_6;
-//     const int forder = order_6;
-//   } 
-  
-//   FFT_SCALAR * _noalias const densityThr =
-//     &(fdbrick[fnzlo_out][fnylo_out][fnxlo_out]);
+  #undef SWITCHVAR
+
+  const flt_t lo0 = boxlo[0];
+  const flt_t lo1 = boxlo[1];
+  const flt_t lo2 = boxlo[2];
+
+  const int nthr = comm->nthreads;
 
 
-//   // clear 3d density array     
-//   memset(densityThr, 0, ngrid*sizeof(FFT_SCALAR));
+  FFT_SCALAR * _noalias const densityThr =
+    &(fdbrick[fnzlo_out][fnylo_out][fnxlo_out]);
+
+  // clear 3d density array
+  memset(densityThr, 0.0, fngrid*sizeof(FFT_SCALAR));
 
 
-//   //icc 16.0 does not support OpenMP 4.5 and so doesn't support
-//   //array reduction.  This sets up private arrays in order to
-//   //do the reduction manually.
+  //icc 16.0 does not support OpenMP 4.5 and so doesn't support
+  //array reduction.  This sets up private arrays in order to
+  //do the reduction manually.
 
-//   FFT_SCALAR localDensity[comm->nthreads * ngrid];
-//   memset(localDensity, 0.,comm->nthreads*ngrid*sizeof(FFT_SCALAR));
+  FFT_SCALAR localDensity[nthr * fngrid * 2];
+  memset(localDensity, 0.0, nthr * fngrid * 2 * sizeof(FFT_SCALAR));
 
-//   // loop over my charges, add their contribution to nearby grid points
-//   // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
-//   // (dx,dy,dz) = distance to "lower left" grid pt
-//   // (mx,my,mz) = global coords of moving stencil pt
+  // loop over my charges, add their contribution to nearby grid points
+  // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
+  // (dx,dy,dz) = distance to "lower left" grid pt
+  // (mx,my,mz) = global coords of moving stencil pt
 
-//   ATOM_T * _noalias const x = buffers->get_x(0);
-//   flt_t * _noalias const q = buffers->get_q(0);
-//   int nlocal = atom->nlocal;
-
-
-//   const int nix = fnxhi_out - fnxlo_out + 1;
-//   const int niy = fnyhi_out - fnylo_out + 1;
-  
-
-//   //Parallelize over the atoms
-//   #if defined(_OPENMP)
-//   #pragma omp parallel default(none) \
-//     shared(nthr, nlocal, localDensity)
-//   #endif
-//   {
-//     int jfrom, jto, tid;
-//     IP_PRE_omp_range_id(jfrom, jto, tid, nlocal, nthr);
+  ATOM_T * _noalias const x = buffers->get_x(0);
+  flt_t * _noalias const q = buffers->get_q(0);
+  int nlocal = atom->nlocal;
 
 
-//     #if defined(LMP_SIMD_COMPILER)
-//     //#pragma vector aligned nontemporal
-//       #pragma simd
-//       #endif   
-//   for (int i = jfrom; i < jto; i++) {
-
-//     int nx = part2grid[i][0];
-//     int ny = part2grid[i][1];
-//     int nz = part2grid[i][2];
-//     FFT_SCALAR dx = nx+fshiftone - (x[i].x-lo0)*xi;
-//     FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
-//     FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo2)*zi;
+  const int nix = fnxhi_out - fnxlo_out + 1;
+  const int niy = fnyhi_out - fnylo_out + 1;
+  const int nsize = fnupper - fnlower;
+  const int tripcount = fnupper = fnlower +1;
 
 
-//     flt_t rho[3][INTEL_P3M_MAXORDER];
 
-//     for (int k = fnlower; k <= fnupper; k++) {
-//       FFT_SCALAR r1,r2,r3;
-//       r1 = r2 = r3 = ZEROF;
+  //Parallelize over the atoms
+  #if defined(_OPENMP)
+  #pragma omp parallel default(none) \
+    shared(nthr, nlocal, localDensity)
+  #endif
+  {
+    int jfrom, jto, tid;
+    IP_PRE_omp_range_id(jfrom, jto, tid, nlocal, nthr);
 
-//       for (int l = forder-1; l >= 0; l--) {
-//         r1 = frho_coeff[l][k] + r1*dx;
-//         r2 = frho_coeff[l][k] + r2*dy;
-//         r3 = frho_coeff[l][k] + r3*dz;
-//       }
-//       rho[0][k-nlower] = r1;
-//       rho[1][k-nlower] = r2;
-//       rho[2][k-nlower] = r3;
-//     }
+    _declspec(align(64)) flt_t rho[3][8];
+    rho[0][7] = 0.0;
 
-//     FFT_SCALAR z0 = fdelvolinv * q[i];
+    for (int i = jfrom; i < jto; ++i) {
 
-//     for (int n = fnlower; n <= fnupper; n++) {
-//       int mz = (n + nz - fnzlo_out)*nix*niy;
-//       FFT_SCALAR y0 = z0*rho[2][n-fnlower];
-//       for (int m = fnlower; m <= fnupper; m++) {
-//         int mzy = mz + (m + ny - fnylo_out)*nix;
-//         FFT_SCALAR x0 = y0*rho[1][m-fnlower];
-//         for (int l = fnlower; l <= fnupper; l++) {
-//           int mzyx = mzy + l + nx - fnxlo_out;
-//           //localDensity[mzyx*nthr + tid] += x0*rho[0][l-fnlower];
-//           localDensity[mzyx + ngrid*tid] += x0*rho[0][l-fnlower];
-//         }
-//       }
-//     }
-//   }
-//   }
+      int nx = part2grid[i][0];
+      int ny = part2grid[i][1];
+      int nz = part2grid[i][2];
 
-//   //do the reduction
-//   #if defined(_OPENMP)
-//   #pragma omp parallel default(none) \
-//     shared(nthr, nlocal, localDensity)
-//   #endif
-//   {
-//     int jfrom, jto, tid;
-//     IP_PRE_omp_range_id(jfrom, jto, tid, ngrid, nthr);
+      int nysum = fnlower + ny - nylo_out;
+      int nxsum = fnlower + nx - nxlo_out + fngrid*tid;
+      int nzsum = (fnlower + nz - nzlo_out) * nix * niy + nysum*nix + nxsum;
 
-//     #if defined(LMP_SIMD_COMPILER)
-//     //#pragma vector aligned nontemporal
-//       #pragma simd
-//       #endif
-//   for (int i = jfrom; i < jto; i++) {
-//     for(int j = 0; j < nthr; j++) {
-//       densityThr[i] += localDensity[i + j*ngrid];
-//     }
-//   }
-//   }
+      FFT_SCALAR dx = nx+fshiftone - (x[i].x-lo0)*xi;
+      FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
+      FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo2)*zi;
 
-// }
+
+      #if defined(LMP_SIMD_COMPILER)
+      #pragma simd
+      #endif
+      for (int k = fnlower; k <= fnupper; k++) {
+        FFT_SCALAR r1,r2,r3;
+        r1 = r2 = r3 = ZEROF;
+
+        for (int l = forder-1; l >= 0; --l) {
+          r1 = frho_coeff[l][k] + r1*dx;
+          r2 = frho_coeff[l][k] + r2*dy;
+          r3 = frho_coeff[l][k] + r3*dz;
+        }
+        rho[0][k-nlower] = r1;
+        rho[1][k-nlower] = r2;
+        rho[2][k-nlower] = r3;
+      }
+
+      FFT_SCALAR z0 = fdelvolinv * q[i];
+
+      #pragma loop_count = 7
+      for (int n = 0; n < tripcount; ++n) {
+        int mz = n*nix*niy +nzsum;
+        FFT_SCALAR y0 = z0*rho[2][n];
+
+        #pragma loop_count = 7
+        for (int m = 0; m < tripcount; ++m) {
+          int mzy = mz + m*nix;
+          FFT_SCALAR x0 = y0*rho[1][m];
+
+          #pragma simd
+          for (int l = 0; l < 8; ++l) {
+            int mzyx = mzy + l;
+            localDensity[mzyx] += x0*rho[0][l];
+          }
+        }
+      }
+    }
+  }
+
+  //do the reduction
+  #if defined(_OPENMP)
+  #pragma omp parallel default(none) \
+    shared(nthr, nlocal, localDensity)
+  #endif
+  {
+    int jfrom, jto, tid;
+    IP_PRE_omp_range_id(jfrom, jto, tid, ngrid, nthr);
+
+    #if defined(LMP_SIMD_COMPILER)
+    //#pragma vector aligned nontemporal
+      #pragma simd
+      #endif
+  for (int i = jfrom; i < jto; ++i) {
+    for(int j = 0; j < nthr; ++j) {
+      densityThr[i] += localDensity[i + j*fngrid];
+    }
+  }
+  }
+
+}
