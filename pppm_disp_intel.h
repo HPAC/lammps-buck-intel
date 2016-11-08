@@ -52,8 +52,8 @@ class PPPMDispIntel : public PPPMDisp {
   void make_rho(IntelBuffers<flt_t,acc_t> *buffers);
   template<const char VARIANT, class flt_t, class acc_t>
   void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers);
-  template<const char VARIANT, class flt_t, class acc_t>
-  void fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers);
+  //template<const char VARIANT, class flt_t, class acc_t>
+  //void fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers);
   // template<class flt_t, class acc_t>
   // void poisson_ik(IntelBuffers<flt_t,acc_t> *buffers);
   // template<class flt_t, class acc_t>

@@ -56,6 +56,17 @@ enum{FORWARD_IK, FORWARD_AD, FORWARD_IK_PERATOM, FORWARD_AD_PERATOM,
 #define ONEF  1.0
 #endif
 
+
+//#define HPAC_TIMING
+
+#ifdef HPAC_TIMING
+  #define START_TIMER(var) do { var = MPI_Wtime(); } while (0)
+  #define STOP_TIMER(var) do { var = MPI_Wtime() - var; } while (0)
+#else
+  #define START_TIMER(var) do {;} while 0
+  #define STOP_TIMER(var) do {;} while 0
+#endif
+
 /* ---------------------------------------------------------------------- */
 
 PPPMDispIntel::PPPMDispIntel(LAMMPS *lmp, int narg, char **arg) : PPPMDisp(lmp, narg, arg)
@@ -112,17 +123,12 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   #endif
 
   #ifdef HPAC_TIMING
-  double p3mtime, p3mtime_compute, p3mtime_particlemap, p3mtime_makerho, p3mtime_poisson, p3mtime_fieldforce, p3mtime_brick2fft, p3mtime_total;
-  struct timespec tv;
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-
-  static double p3mtime_wholetimestep = p3mtime;
-  printf("Timestep duration: %g\n\n", p3mtime - p3mtime_wholetimestep);
-  p3mtime_wholetimestep = p3mtime;
-  p3mtime_total = p3mtime;
+  double tmrho_g, tmrho_a, tmrho_none, tmrho_c;
+  double tforce_ik_g, tforce_ik_a, tforce_ik_c, tforce_ik_none;
+  double tpoiss_ik_g, tpoiss_ik_a, tpoiss_ik_c, tpoiss_ik_none, tpoiss2s;
+  double tpmap_g, tpmap_c, tbrick_g, tbrick_a, tbrick_c, tbrick_none, tpglobal;
   #endif
-
+  START_TIMER(tpglobal);
 
   int i;
   // convert atoms from box to lamda coords
@@ -177,17 +183,24 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   if (function[0]) {
     //perfrom calculations for coulomb interactions only
 
+    START_TIMER(tpmap_c);
     // particle_map_c(delxinv, delyinv, delzinv, shift, part2grid, nupper, nlower,
     //              nxlo_out, nylo_out, nzlo_out, nxhi_out, nyhi_out, nzhi_out);
     particle_map<'c', double, double>(fix->get_double_buffers());
-    //make_rho_c();
+    STOP_TIMER(tpmap_c);
 
+    START_TIMER(tmrho_c);
+    //make_rho_c();
     make_rho<'c', double, double>(fix->get_double_buffers());
+    STOP_TIMER(tmrho_c);
+
 
     cg->reverse_comm(this,REVERSE_RHO);
 
+    START_TIMER(tbrick_c);
     brick2fft(nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
 	      density_brick, density_fft, work1,remap);
+    STOP_TIMER(tbrick_c);
 
     if (differentiation_flag == 1) {
 
@@ -206,6 +219,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
       if (vflag_atom) cg_peratom->forward_comm(this, FORWARD_AD_PERATOM);
 
     } else {
+      START_TIMER(tpoiss_ik_c);
       poisson_ik(work1, work2, density_fft, fft1, fft2,
                  nx_pppm, ny_pppm, nz_pppm, nfft,
                  nxlo_fft, nylo_fft, nzlo_fft, nxhi_fft, nyhi_fft, nzhi_fft,
@@ -214,11 +228,14 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 	         fkx, fky, fkz,fkx2, fky2, fkz2,
                  vdx_brick, vdy_brick, vdz_brick, virial_1, vg,vg2,
                  u_brick, v0_brick, v1_brick, v2_brick, v3_brick, v4_brick, v5_brick);
+      STOP_TIMER(tpoiss_ik_c);
 
       cg->forward_comm(this, FORWARD_IK);
 
-      //fieldforce_c_ik();
-      fieldforce_ik<'c',double, double>(fix->get_double_buffers());
+      START_TIMER(tforce_ik_c);
+      fieldforce_c_ik();
+      //fieldforce_ik<'c',double, double>(fix->get_double_buffers());
+      STOP_TIMER(tforce_ik_c);
 
       if (evflag_atom) cg_peratom->forward_comm(this, FORWARD_IK_PERATOM);
     }
@@ -228,48 +245,28 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   if (function[1]) {
     //perfrom calculations for geometric mixing
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_particlemap = 0;
-    else p3mtime_particlemap = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    #endif
-
+    START_TIMER(tpmap_g);
     // particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6,
     // 		 nupper_6, nlower_6, nxlo_out_6, nylo_out_6, nzlo_out_6,
     // 		 nxhi_out_6, nyhi_out_6, nzhi_out_6);
 
     particle_map<'g', double, double>(fix->get_double_buffers());
+    STOP_TIMER(tpmap_g);
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    printf("particle map time: %g\n", p3mtime - p3mtime_particlemap);
-    p3mtime_makerho = p3mtime;
-    #endif
-
+    START_TIMER(tmrho_g);    
     //make_rho_g();
     make_rho<'g', double, double>(fix->get_double_buffers());
+    STOP_TIMER(tmrho_g);
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    printf("make rho time: %g\n", p3mtime - p3mtime_makerho);
-    #endif
 
     cg_6->reverse_comm(this, REVERSE_RHO_G);
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_brick2fft = 0;
-    else p3mtime_brick2fft = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    #endif
+    START_TIMER(tbrick_g);
 
     brick2fft(nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
 	      density_brick_g, density_fft_g, work1_6,remap_6);
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    printf("brick2fft time: %g\n", p3mtime - p3mtime_brick2fft);
-    #endif
+    STOP_TIMER(tbrick_g);
 
     if (differentiation_flag == 1) {
 
@@ -289,12 +286,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
     } else {
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_poisson = 0;
-    else p3mtime_poisson = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    #endif
-
-
+    START_TIMER(tpoiss_ik_g);
     poisson_ik(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
                nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
                nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
@@ -304,27 +296,15 @@ void PPPMDispIntel::compute(int eflag, int vflag)
                vdx_brick_g, vdy_brick_g, vdz_brick_g, virial_6, vg_6, vg2_6,
                u_brick_g, v0_brick_g, v1_brick_g, v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    printf("poisson time: %g\n", p3mtime - p3mtime_poisson);
-    #endif
+    STOP_TIMER(tpoiss_ik_g);
+
 
     cg_6->forward_comm(this,FORWARD_IK_G);
 
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime_fieldforce = 0;
-    else p3mtime_fieldforce = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    #endif
-
-    //fieldforce_g_ik();
-    fieldforce_ik<'g',double, double>(fix->get_double_buffers());
-
-    #ifdef HPAC_TIMING
-    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-    else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-    printf("fieldforce time: %g\n", p3mtime - p3mtime_fieldforce);
-    #endif
+    START_TIMER(tforce_ik_g);
+    fieldforce_g_ik();
+    //fieldforce_ik<'g',double, double>(fix->get_double_buffers());
+    STOP_TIMER(tforce_ik_g);
 
 
     if (evflag_atom) cg_peratom_6->forward_comm(this, FORWARD_IK_PERATOM_G);
@@ -339,13 +319,25 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     // particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6,
     //              nupper_6, nlower_6, nxlo_out_6, nylo_out_6, nzlo_out_6,
     //              nxhi_out_6, nyhi_out_6, nzhi_out_6);
-
+    
+    START_TIMER(tpmap_g);
     particle_map<'g', double, double>(fix->get_double_buffers());
+    STOP_TIMER(tpmap_g);
+
+
+
+    START_TIMER(tmrho_a);
     make_rho_a();
+    STOP_TIMER(tmrho_a);
+
 
     cg_6->reverse_comm(this, REVERSE_RHO_A);
 
+
+    STOP_TIMER(tbrick_a);
     brick2fft_a();
+    STOP_TIMER(tbrick_a);
+
 
     if ( differentiation_flag == 1) {
 
@@ -374,6 +366,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
     }  else {
 
+
+      START_TIMER(tpoiss_ik_g);
       poisson_ik(work1_6, work2_6, density_fft_a3, fft1_6, fft2_6,
                  nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
                  nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
@@ -382,6 +376,9 @@ void PPPMDispIntel::compute(int eflag, int vflag)
                  fkx_6, fky_6, fkz_6,fkx2_6, fky2_6, fkz2_6,
                  vdx_brick_a3, vdy_brick_a3, vdz_brick_a3, virial_6, vg_6, vg2_6,
                  u_brick_a3, v0_brick_a3, v1_brick_a3, v2_brick_a3, v3_brick_a3, v4_brick_a3, v5_brick_a3);
+      STOP_TIMER(tpoiss_ik_g);
+
+      START_TIMER(tpoiss2s);
       poisson_2s_ik(density_fft_a0, density_fft_a6,
                     vdx_brick_a0, vdy_brick_a0, vdz_brick_a0,
                     vdx_brick_a6, vdy_brick_a6, vdz_brick_a6,
@@ -397,10 +394,12 @@ void PPPMDispIntel::compute(int eflag, int vflag)
                     vdx_brick_a4, vdy_brick_a4, vdz_brick_a4,
                     u_brick_a2, v0_brick_a2, v1_brick_a2, v2_brick_a2, v3_brick_a2, v4_brick_a2, v5_brick_a2,
                     u_brick_a4, v0_brick_a4, v1_brick_a4, v2_brick_a4, v3_brick_a4, v4_brick_a4, v5_brick_a4);
-
+      STOP_TIMER(tpoiss2s);
       cg_6->forward_comm(this, FORWARD_IK_A);
 
+      START_TIMER(tforce_ik_a);
       fieldforce_a_ik();
+      STOP_TIMER(tforce_ik_a);
 
       if (evflag_atom) cg_peratom_6->forward_comm(this, FORWARD_IK_PERATOM_A);
     }
@@ -412,13 +411,19 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     // particle_map(delxinv_6, delyinv_6, delzinv_6, shift_6, part2grid_6,
     //              nupper_6, nlower_6, nxlo_out_6, nylo_out_6, nzlo_out_6,
     //              nxhi_out_6, nyhi_out_6, nzhi_out_6);
-
+    START_TIMER(tpmap_g);
     particle_map<'g', double, double>(fix->get_double_buffers());
+    STOP_TIMER(tpmap_g);
+
+    START_TIMER(tmrho_none);
     make_rho_none();
+    STOP_TIMER(tmrho_none);
 
     cg_6->reverse_comm(this, REVERSE_RHO_NONE);
 
+    START_TIMER(tbrick_none);
     brick2fft_none();
+    STOP_TIMER(tbrick_none);
 
     if (differentiation_flag == 1) {
 
@@ -439,8 +444,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
     } else {
       int n = 0;
+      START_TIMER(tpoiss_ik_none);
       for (int k = 0; k<nsplit_alloc/2; k++) {
-
         poisson_none_ik(n,n+1,density_fft_none[n], density_fft_none[n+1],
                         vdx_brick_none[n], vdy_brick_none[n], vdz_brick_none[n],
                         vdx_brick_none[n+1], vdy_brick_none[n+1], vdz_brick_none[n+1],
@@ -448,11 +453,13 @@ void PPPMDispIntel::compute(int eflag, int vflag)
                         v3_brick_none, v4_brick_none, v5_brick_none);
         n += 2;
       }
+      STOP_TIMER(tpoiss_ik_none);
 
       cg_6->forward_comm(this,FORWARD_IK_NONE);
 
+      START_TIMER(tforce_ik_none);
       fieldforce_none_ik();
-
+      STOP_TIMER(tforce_ik_none);
       if (evflag_atom)
         cg_peratom_6->forward_comm(this, FORWARD_IK_PERATOM_NONE);
     }
@@ -539,11 +546,10 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   // convert atoms back from lamda to box coords
 
   if (triclinic) domain->lamda2x(atom->nlocal);
+  STOP_TIMER(tpglobal);
 
   #ifdef HPAC_TIMING
-  if(clock_gettime(CLOCK_REALTIME, &tv) != 0) p3mtime = 0;
-  else p3mtime = (tv.tv_sec-1.46358e9) + ((double)tv.tv_nsec/1000000000.);
-  printf("total p3mtime: %g\n", p3mtime - p3mtime_total);
+  printf("Timings:\n\n tmrho_g: %g\n\t tmrho_a: %g\n\t tmrho_none: %g\n\t tmrho_c: %g\n\t tforce_ik_g: %g\n\t tforce_ik_a: %g\n\t tforce_ik_c: %g\n\t tforce_ik_none: %g\n\t tpoiss_ik_g: %g\n\t tpoiss_ik_a: %g\n\t tpoiss_ik_c: %g\n\t tpoiss_ik_none: %g\n\t tpoiss2s: %g\n\t tpmap_g: %g\n\t tpmap_c: %g\n\t tbrick_g: %g\n\t tbrick_a: %g\n\t tbrick_c: %g\n\t tbrick_none: %g\n\t tpglobal: %g\n", tmrho_g, tmrho_a, tmrho_none, tmrho_c, tforce_ik_g, tforce_ik_a, tforce_ik_c, tforce_ik_none, tpoiss_ik_g, tpoiss_ik_a, tpoiss_ik_c, tpoiss_ik_none, tpoiss2s, tpmap_g, tpmap_c, tbrick_g, tbrick_a, tbrick_c, tbrick_none, tpglobal);
   #endif
 }
 
@@ -685,7 +691,7 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   const int nix = nxhi - nxlo + 1;
   const int niy = nyhi - nylo + 1;
   const int nsize = nup - nlow;
-  const int tripcount = nup = nlow +1;
+  const int tripcount = nup - nlow +1;
 
 
 
@@ -698,7 +704,7 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     int jfrom, jto, tid;
     IP_PRE_omp_range_id(jfrom, jto, tid, nlocal, nthr);
 
-    _declspec(align(64)) flt_t rho[3][8];
+    __declspec(align(64)) flt_t rho[3][8];
     rho[0][7] = 0.0;
 
     for (int i = jfrom; i < jto; ++i) {
@@ -777,8 +783,9 @@ void PPPMDispIntel::make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 
 }
 
+
 template<const char VARIANT, class flt_t, class acc_t>
-void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers) {
+  void PPPMDispIntel::fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers) {
 
   ATOM_T * _noalias const x = buffers->get_x(0);
   flt_t * _noalias const q = buffers->get_q(0);
@@ -795,7 +802,7 @@ void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers) {
   #define SWITCHVAR(_c, _g ) VARIANT == 'c' ? _c : _g
 
   const flt_t xi = SWITCHVAR(delxinv, delxinv_6);
-  const flt_t yi = SWITCHVAR(delyinv, delyxinv_6);
+  const flt_t yi = SWITCHVAR(delyinv, delyinv_6);
   const flt_t zi = SWITCHVAR(delzinv, delzinv_6);
   const flt_t fshift = SWITCHVAR(shift, shift_6);
   const flt_t fshiftone = SWITCHVAR(shiftone, shiftone_6);
@@ -807,6 +814,7 @@ void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers) {
   const int nzhi = SWITCHVAR(nzhi_out, nzhi_out_6);
   const int nup = SWITCHVAR(nupper, nupper_6);
   const int nlow = SWITCHVAR(nlower, nlower_6);
+  int ** const p2g = SWITCHVAR(part2grid, part2grid_6);
   FFT_SCALAR ** const frho_coeff = SWITCHVAR(rho_coeff, rho_coeff_6);
   FFT_SCALAR *** const fvdx_brick = SWITCHVAR(vdx_brick, vdx_brick_g);
   FFT_SCALAR *** const fvdy_brick = SWITCHVAR(vdy_brick, vdy_brick_g);
@@ -920,13 +928,9 @@ void fieldforce_ik(IntelBuffers<flt_t,acc_t> *buffers) {
     }
     f[i].x += ffactor*ekxsum;
     f[i].y += ffactor*ekysum;
-    if (slabflag != 2) f[i].z += qfactor*ekzsum;
+    if (slabflag != 2) f[i].z += ffactor*ekzsum;
   } // End loop over atoms
 
 } // End Parallel region
 }
 
-template<const char VARIANT, class flt_t, class acc_t>
-void fieldforce_ad(IntelBuffers<flt_t,acc_t> *buffers){
-
-}
